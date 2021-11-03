@@ -101,6 +101,7 @@ def plot_errorbars(dfbicts, xparameter='index', yparameter='z', min_cm=0.5, z0=0
 
     ax.set_xlabel(xparameter, fontsize=18)
     ax.set_ylabel(yparameter, fontsize=18)
+    ax.set_ylim([-10, 100])
     ax.grid(alpha=0.125)
     ax.legend(dfbicts.keys(), prop=fontP, title=r'$dz$ (mm)', loc='upper left', fancybox=True, shadow=False)
 
@@ -123,6 +124,9 @@ def plot_fit_and_scatter(fit_function, dficts, xparameter='index', yparameter='z
     cscatter = iter(cm.Spectral(np.linspace(0.95, 0.2, len(dficts.keys()))))
 
     for name, df in dficts.items():
+
+        # drop NaN's
+        df = df.dropna(axis=0, subset=[yparameter])
 
         # filter dataframe
         df = df[df['cm'] > min_cm]
