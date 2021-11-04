@@ -58,3 +58,15 @@ def dficts_flip(dficts, column):
         dficts.update({name: df})
 
     return dficts
+
+def stack_dficts_by_key(dficts):
+
+    dfs = []
+
+    for name, df in dficts.items():
+        df['filename'] = name
+        dfs.append(df)
+
+    dfstack = pd.concat(dfs)
+
+    return dfstack

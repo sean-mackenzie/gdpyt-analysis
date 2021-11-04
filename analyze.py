@@ -15,7 +15,7 @@ from utils.bin import *
 # scripts
 
 def calculate_bin_local_rmse_z(dficts, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=None, round_to_decimal=0,
-                     true_num_particles=None):
+                     dficts_ground_truth=None):
     """
     Calculate the local rmse_z uncertainty for every dataframe in a dictionary and return the binned dataframe.
 
@@ -30,15 +30,13 @@ def calculate_bin_local_rmse_z(dficts, column_to_bin='z_true', bins=20, min_cm=0
     """
 
     dfbs = {}
-    for item in dficts.items():
+    for name, df in dficts.items():
 
-        # get name and dataframe (for readability)
-        name = item[0]
-        df = item[1]
+        df_ground_truth = dficts_ground_truth[name]
 
         # calculate the local rmse_z uncertainty
         dfb = bin_local_rmse_z(df, column_to_bin=column_to_bin, bins=bins, min_cm=min_cm, z_range=z_range,
-                               round_to_decimal=round_to_decimal, true_num_particles=true_num_particles)
+                               round_to_decimal=round_to_decimal, df_ground_truth=df_ground_truth)
         # update dictionary
         dfbs.update({name: dfb})
 

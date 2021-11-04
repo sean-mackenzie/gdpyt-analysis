@@ -9,8 +9,8 @@ import numpy as np
 
 # scripts
 
-def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=None, round_to_decimal=0,
-                     true_num_particles=None):
+def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=[-40.001, 40.001], round_to_decimal=0,
+                     df_ground_truth=None):
     """
     Creates a new dataframe and calculates the RMSE-z for a specified: number of bins [integer] OR values in bins [list].
 
@@ -35,8 +35,7 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
         dfc = dfc.rename(columns={"true_z": "z_true"})
 
     # define extents of z-range
-    if z_range is not None:
-        dfc = dfc[(dfc['z_true'] > z_range[0]) & (dfc['z_true'] < z_range[1])]
+    dfc = dfc[(dfc['z_true'] > z_range[0]) & (dfc['z_true'] < z_range[1])]
 
     # if c_m is below minimum c_m, change 'z' to NaN:
     dfc['z'] = np.where((dfc['cm'] < min_cm), np.nan, dfc['z'])
@@ -45,16 +44,16 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
     if (isinstance(bins, int) or isinstance(bins, float)):
         dfc = bin_by_column(dfc, column_to_bin=column_to_bin, number_of_bins=bins)
     elif isinstance(bins, (list, tuple, np.ndarray)):
-        dfc = bin_by_list(dfc, column_to_bin=column_to_bin, bins=bins, round_to_decimal=round_to_decimal)
+        dfc = bin_by_list(dfc, column_to_bin=column_to_bin, bins=bins, round_to_decimal=4)
 
     # count the percent not-NaNs in 'z' due to this particular binning
     dfp = dfc.groupby('bin').count()
     dfp['num_bind'] = dfp['cm']
-    dfp['num_meas'] = dfp['cm']
+    dfp['num_meas'] = dfp['z']
     dfp['percent_meas'] = dfp['z'] / dfp['cm'] * 100
 
     # drop NaNs in full dataframe, dfc, so they aren't included in the rmse
-    dfc = dfc.dropna()
+    # dfc = dfc.dropna()
 
     # calculate the squared error for each measurement
     dfc['error'] = dfc['z_true'] - dfc['z']
@@ -66,9 +65,30 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
 
     # concatenate mean dataframe with: sum of square error and number of measurements
     # add a column for the true number of particles (if known)
-    if true_num_particles is not None:
-        dfp['true_num_particles'] = true_num_particles
-        dfp['true_percent_meas'] = dfp['num_meas'] / dfp['true_num_particles']
+    if df_ground_truth is not None:
+
+        # get bin values
+        bin_list = dfc.bin.unique()
+
+        # define extents of ground truth z-range to match test collection
+        df_ground_truth = df_ground_truth[(df_ground_truth['z'] > z_range[0]) &
+                                          (df_ground_truth['z'] < z_range[1])]
+
+        # adjust column_to_bin to match ground truth column names
+        if column_to_bin == 'z_true':
+            column_to_bin = 'z'
+        elif column_to_bin == 'x_true':
+            column_to_bin = 'x'
+        elif column_to_bin == 'y_true':
+            column_to_bin = 'y'
+
+        # bin dataframe uses list of bin values
+        df_ground_truth = bin_by_list(df_ground_truth, column_to_bin=column_to_bin, bins=bin_list, round_to_decimal=4)
+        df_true_num_particles_per_bin = df_ground_truth.groupby('bin').count()
+        df_true_num_particles_per_bin = df_true_num_particles_per_bin.rename(columns={'filename': 'true_num_particles'})
+
+        dfp = pd.concat([dfp, df_true_num_particles_per_bin[['true_num_particles']]], axis=1, join='inner', sort=False)
+        dfp['true_percent_meas'] = dfp['num_meas'] / dfp['true_num_particles'] * 100
         dfrmse = pd.concat(
             [dfmean, dfsum, dfp[['num_bind', 'num_meas', 'percent_meas', 'true_num_particles', 'true_percent_meas']]],
             axis=1, join='inner', sort=False)
@@ -121,7 +141,7 @@ def bin_local(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=None, z0=
 
     # returns an identical dataframe but adds a column named "bin"
     if (isinstance(bins, int) or isinstance(bins, float)):
-        df = bin_by_column(df, column_to_bin=column_to_bin, number_of_bins=bins, round_to_decimal=3)
+        df = bin_by_column(df, column_to_bin=column_to_bin, number_of_bins=bins, round_to_decimal=4)
     elif isinstance(bins, (list, tuple, np.ndarray)):
         df = bin_by_list(df, column_to_bin=column_to_bin, bins=bins, round_to_decimal=round_to_decimal)
 
@@ -166,7 +186,7 @@ def bin_local(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=None, z0=
     return df
 
 
-def bin_by_column(df, column_to_bin='z_true', number_of_bins=20, round_to_decimal=3):
+def bin_by_column(df, column_to_bin='z_true', number_of_bins=20, round_to_decimal=4):
     """
     Creates a new column "bin" of which maps column_to_bin to equi-spaced bins. Note, that this does not change the
     original dataframe in any way. It only adds a new column to enable grouping.
@@ -176,6 +196,9 @@ def bin_by_column(df, column_to_bin='z_true', number_of_bins=20, round_to_decima
     if 'true_z' in df.columns:
         df = df.rename(columns={"true_z": "z_true"})
 
+    # round the column_to_bin to integer for easier mapping
+    df = df.round({'z_true': 4})
+
     # copy the column_to_bin to 'mapped' for mapping
     df.loc[:, 'bin'] = df.loc[:, column_to_bin]
 
@@ -183,13 +206,13 @@ def bin_by_column(df, column_to_bin='z_true', number_of_bins=20, round_to_decima
     unique_vals = df[column_to_bin].unique()
 
     # calculate the equi-width stepsize
-    stepsize = (np.max(unique_vals) - np.min(unique_vals)) / (number_of_bins - 1)
+    stepsize = (np.max(unique_vals) - np.min(unique_vals)) / (number_of_bins)
 
     # re-interpolate the space
-    new_vals = np.linspace(np.min(unique_vals) + stepsize / 2, np.max(unique_vals) - stepsize / 2, number_of_bins - 1)
+    new_vals = np.linspace(np.min(unique_vals) + stepsize / 2, np.max(unique_vals) - stepsize / 2, number_of_bins)
 
     # round to reasonable decimal place
-    new_vals = np.around(new_vals, decimals=round_to_decimal)
+    new_vals = np.around(new_vals, decimals=4)
 
     # create the mapping list
     mappping = map_lists_a_to_b(unique_vals, new_vals)
@@ -214,7 +237,10 @@ def bin_by_list(df, column_to_bin, bins, round_to_decimal=0):
         df = df.rename(columns={"true_z": "z_true"})
 
     # round the column_to_bin to integer for easier mapping
-    df = df.round({'x': round_to_decimal, 'y': round_to_decimal})
+    df = df.round({'z_true': 4})
+
+    if column_to_bin in ['x', 'y']:
+        df = df.round({'x': round_to_decimal, 'y': round_to_decimal})
 
     # copy the column_to_bin to 'mapped' for mapping
     df['bin'] = df[column_to_bin].copy()
