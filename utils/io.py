@@ -31,6 +31,9 @@ def read_files(read_to, path_name, sort_strings, filetype='.xlsx', subset=None, 
     else:
         files = [f for f in os.listdir(path_name) if f.endswith(filetype)]
 
+    if len(files) == 0:
+        raise ValueError("No files found at {}".format(path_name))
+
     if subset:
         files = files[:subset]
 
@@ -127,6 +130,15 @@ def read_excel(path_name, filetype='.xlsx', sort_strings=[]):
     df = pd.read_excel(io=path_name, dtype=str)
 
     return df
+
+
+def export_df_to_excel(df, path_name, include_index=True, index_label='index', filetype='.xlsx', drop_columns=None):
+
+    if drop_columns:
+        df = df.drop(columns=drop_columns)
+
+    path_name = path_name + filetype
+    df.to_excel(excel_writer=path_name, index=include_index, index_label=index_label)
 
 
 """

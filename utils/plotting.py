@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
 from matplotlib.pyplot import cm
 from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # formatting
 plt.rcParams['legend.title_fontsize'] = 'large'
@@ -62,6 +63,60 @@ def plot_scatter(dficts, xparameter='y', yparameter='z', min_cm=0.5, z0=0, take_
     return fig, ax
 
 
+def plot_mean(dficts, xparameter='y', yparameter='z', min_cm=0.5, z0=0, take_abs=False, fit_function=None):
+    """
+    Plot all data (xparameter, yparameter) as scatter points with different colors.
+
+    :param dficts:
+    :param xparameter:
+    :param yparameter:
+    :param min_cm:
+    :param z0:
+    :return:
+    """
+    cscatter = iter(cm.Spectral(np.linspace(0.95, 0.2, len(dficts.keys()))))
+    cerror = iter(cm.Spectral(np.linspace(0.95, 0.2, len(dficts.keys()))))
+
+    fig, ax = plt.subplots(figsize=(7.25, 4.25))
+
+    means = []
+    for name, df in dficts.items():
+
+        # filter dataframe
+        df = df[df['cm'] > min_cm]
+
+        y = df[yparameter] - z0
+
+        # take absolute value
+        if take_abs:
+            y = np.abs(y)
+
+        yerr = np.std(y)
+        y = np.mean(y)
+        means.append(y)
+
+        # plot
+        cs = next(cscatter)
+        ax.errorbar(name, y, yerr=yerr * 2, fmt='o', color=cs, ecolor=next(cerror), elinewidth=3, capsize=4, alpha=0.75)
+        ax.scatter(name, y, color=cs)
+
+    ax.set_xlabel(xparameter, fontsize=18)
+    ax.set_ylabel(yparameter, fontsize=18)
+    ax.grid(alpha=0.125)
+    ax.legend(dficts.keys(), prop=fontP, title=r'$dz$ (mm)', loc='upper left', fancybox=True, shadow=False)
+
+    # fit the function
+    if fit_function is not None:
+        names = list(dficts.keys())
+        popt, pcov, fit_func = fit.fit(names, means, fit_function=fit_function)
+
+        # plot fitted function
+        xfit = np.linspace(0, np.max(names), 100)
+        ax.plot(xfit, fit_function(xfit, *popt), color='black', linewidth=2, linestyle='--', alpha=0.5)
+
+    return fig, ax
+
+
 def plot_errorbars(dfbicts, xparameter='index', yparameter='z', min_cm=0.5, z0=0):
     """
     Plot all data (xparameter, yparameter) as scatter points with different colors.
@@ -96,12 +151,11 @@ def plot_errorbars(dfbicts, xparameter='index', yparameter='z', min_cm=0.5, z0=0
 
         # plot
         cs = next(cscatter)
-        ax.errorbar(x, y, yerr=df.z_std * 2, fmt='o', color=cs, ecolor=next(cerror), elinewidth=1, capsize=2, alpha=0.25)
+        ax.errorbar(x, y, yerr=df.z_std * 2, fmt='o', color=cs, ecolor=next(cerror), elinewidth=1, capsize=2, alpha=0.75)
         ax.scatter(x, y, color=cs)
 
     ax.set_xlabel(xparameter, fontsize=18)
     ax.set_ylabel(yparameter, fontsize=18)
-    ax.set_ylim([-10, 100])
     ax.grid(alpha=0.125)
     ax.legend(dfbicts.keys(), prop=fontP, title=r'$dz$ (mm)', loc='upper left', fancybox=True, shadow=False)
 
@@ -159,66 +213,97 @@ def plot_fit_and_scatter(fit_function, dficts, xparameter='index', yparameter='z
     return fig, ax
 
 
-def plot_dfbicts_local(dfbicts, parameters='rmse_z', h=1, colors=None, linestyles=None, show_legend=False, scale=1.0):
+def plot_dfbicts_local(dfbicts, parameters='rmse_z', h=1, colors=None, linestyles=None, show_legend=False, scale=None,
+                       scatter_on=True, scatter_size=10):
 
-    if isinstance(parameters, str):
-        parameter = parameters
-        parameterr = None
-    elif isinstance(parameters, list):
-        parameter = parameters[0]
-        parameterr = parameters[1]
-
-    if isinstance(scale, (int, float)):
-        scalex, scaley = scale, scale
-    else:
-        scalex, scaley = scale[0], scale[1]
-
-    fig, ax = plt.subplots(figsize=(4.125*scalex, 2.375*scaley))
-
+    # format figure
     if isinstance(colors, list):
         cscatter = iter(colors)
         cscatterr = iter(colors)
     elif colors == 'Blues':
+        cscatter = iter(cm.Blues(np.linspace(0.1, 0.9, len(dfbicts.keys()))))
+        cscatterr = iter(cm.Blues(np.linspace(0.1, 0.9, len(dfbicts.keys()))))
+    elif colors == 'inferno':
         cscatter = iter(cm.inferno(np.linspace(0.1, 0.9, len(dfbicts.keys()))))
         cscatterr = iter(cm.inferno(np.linspace(0.1, 0.9, len(dfbicts.keys()))))
     else:
-        cscatter = iter(cm.inferno(np.linspace(0.1, 0.9, len(dfbicts.keys()))))
-        cscatterr = iter(cm.inferno(np.linspace(0.1, 0.9, len(dfbicts.keys()))))
+        cscatter = None
+        cscatterr = None
 
     if isinstance(linestyles, list):
         lstyle = iter(linestyles)
     else:
-        lstyle = iter('-' for i in range(dfbicts.keys()))
+        lstyle = iter('-' for i in list(dfbicts.keys()))
+
+    if not scale:
+        fig, ax = plt.subplots()
+    else:
+        if isinstance(scale, (int, float)):
+            scalex, scaley = scale, scale
+        else:
+            scalex, scaley = scale[0], scale[1]
+
+        fig, ax = plt.subplots()
+        size_x_inches, size_y_inches = fig.get_size_inches()
+        size_x_pixels, size_y_pixels = fig.get_size_inches() * fig.dpi
+        plt.close(fig)
+
+        fig, ax = plt.subplots(figsize=(size_x_inches*scalex, size_y_inches*scaley))
+
+    # organize data
+    if isinstance(parameters, str):
+        parameter = parameters
+        parameterr = None
+    elif isinstance(parameters, list) and len(parameters) > 1:
+        parameter = parameters[0]
+        parameterr = parameters[1]
 
     if parameter == 'rmse_z':
         for item in dfbicts.items():
-            cs = next(cscatter)
-            ls = next(lstyle)
-            ax.plot(item[1].index, item[1][parameter] / h, color=cs, linestyle=ls, linewidth=3)
-            ax.scatter(item[1].index, item[1][parameter] / h, s=50, color=cs, alpha=0.5)
+
+            if cscatter is not None:
+                cs = next(cscatter)
+                ls = next(lstyle)
+                ax.plot(item[1].index, item[1][parameter] / h)
+                if scatter_on:
+                    ax.scatter(item[1].index, item[1][parameter] / h)
+            else:
+                ax.plot(item[1].index, item[1][parameter] / h)
+                if scatter_on:
+                    ax.scatter(item[1].index, item[1][parameter] / h, s=scatter_size)
     else:
         for item in dfbicts.items():
-            cs = next(cscatter)
-            ls = next(lstyle)
-            ax.plot(item[1].index, item[1][parameter], color=cs, linestyle=ls, linewidth=3)
-            ax.scatter(item[1].index, item[1][parameter], s=50, color=cs, alpha=0.5)
+
+            if cscatter is not None:
+                cs = next(cscatter)
+                ls = next(lstyle)
+                ax.plot(item[1].index, item[1][parameter])
+                if scatter_on:
+                    ax.scatter(item[1].index, item[1][parameter])
+            else:
+                ax.plot(item[1].index, item[1][parameter] / h)
+                if scatter_on:
+                    ax.scatter(item[1].index, item[1][parameter] / h, s=scatter_size)
 
     if parameterr is not None:
         ax2 = ax.twinx()
         for item in dfbicts.items():
-            css = next(cscatterr)
-            ax2.plot(item[1].index, item[1][parameterr], color=css, linestyle='--', linewidth=2, alpha=0.75)
+            if cscatterr is not None:
+                css = next(cscatterr)
+                ax2.plot(item[1].index, item[1][parameterr])
+            else:
+                ax2.plot(item[1].index, item[1][parameterr], linestyle='--')
 
     if h != 1 and parameter == 'rmse_z':
-        ax.set_ylabel(r'$\sigma_{z}\left(z\right)$ / h', fontsize=18)
+        ax.set_ylabel(r'$\sigma_{z}\left(z\right) / h$')
     else:
-        ax.set_ylabel(parameter, fontsize=18)
+        ax.set_ylabel(parameter)
 
-    ax.set_xlabel('z ($\mu m$)', fontsize=18)
+    ax.set_xlabel('z ($\mu m$)')
     ax.grid(alpha=0.25)
 
     if show_legend:
-        ax.legend(dfbicts.keys(), prop=fontP, title=r'$\sigma$', loc='upper left', fancybox=True, shadow=False)
+        ax.legend(dfbicts.keys(), title=r'$\sigma$')
 
     if parameterr is not None:
         return fig, ax, ax2
@@ -226,40 +311,171 @@ def plot_dfbicts_local(dfbicts, parameters='rmse_z', h=1, colors=None, linestyle
         return fig, ax
 
 
-def plot_dfbicts_global(dfbicts, parameter='rmse_z', xlabel='parameter', h=1, print_values=True):
-    fig, ax = plt.subplots(figsize=(8.25, 4.75))
+def plot_dfbicts_global(dfbicts, parameters='rmse_z', xlabel='parameter', h=1, print_values=False,
+                        scale=None, fig=None, ax=None, ax2=None, ax2_ylim=None, color=None, scatter_size=10):
 
-    names = dfbicts.keys()
-    means = np.array([m[parameter].mean() for m in dfbicts.values()])
+    if fig is None and ax is None:
 
-    if print_values:
-        print(names)
-        print('mean sigma_z: {}'.format(means / h))
+        if not scale:
+            fig, ax = plt.subplots()
+        else:
+            if isinstance(scale, (int, float)):
+                scalex, scaley = scale, scale
+            else:
+                scalex, scaley = scale[0], scale[1]
 
-    if parameter == 'rmse_z' and h != 1:
-        ax.plot(names, means / h, color='tab:blue', linewidth=3)
-        ax.scatter(names, means / h, s=50, color='tab:blue', alpha=0.5)
+            fig, ax = plt.subplots()
+            size_x_inches, size_y_inches = fig.get_size_inches()
+            plt.close(fig)
+
+            fig, ax = plt.subplots(figsize=(size_x_inches * scalex, size_y_inches * scaley))
+
+        if ax2 is None and isinstance(parameters, list) and len(parameters) > 1:
+            ax2 = ax.twinx()
+
+    # organize data
+    if isinstance(parameters, str):
+        parameter = parameters
+        parameterr = None
+
+        names = dfbicts.keys()
+        means = np.array([m[parameter].mean() for m in dfbicts.values()])
+
+        sort_by_name = sorted(list(zip(names, means)), key=lambda x: x[0])
+        names = [x[0] for x in sort_by_name]
+        means = np.array([x[1] for x in sort_by_name])
+
+    elif isinstance(parameters, list) and len(parameters) > 1:
+        parameter = parameters[0]
+        parameterr = parameters[1]
+
+        names = dfbicts.keys()
+        means = np.array([m[parameter].mean() for m in dfbicts.values()])
+        means_prr = np.array([m[parameterr].mean() for m in dfbicts.values()])
+
+        sort_by_name = sorted(list(zip(names, means, means_prr)), key=lambda x: x[0])
+        names = [x[0] for x in sort_by_name]
+        means = np.array([x[1] for x in sort_by_name])
+        means_prr = np.array([x[2] for x in sort_by_name])
     else:
-        ax.plot(names, means, color='tab:blue', linewidth=3)
-        ax.scatter(names, means, s=50, color='tab:blue', alpha=0.5)
+        raise ValueError("parameters must be a string or a list of strings")
+
+    # plot figure
+    if parameter == 'rmse_z' and h != 1:
+        ax.plot(names, means / h)
+        ax.scatter(names, means / h, s=scatter_size)
+    else:
+        ax.plot(names, means)
+        ax.scatter(names, means, s=scatter_size)
 
     if h != 1 and parameter == 'rmse_z':
-        ax.set_ylabel(r'$\sigma_{z}\left(z\right)$ / h', fontsize=18)
+        ax.set_ylabel(r'$\sigma_{z} / h$')
     else:
-        ax.set_ylabel(parameter, fontsize=18)
+        ax.set_ylabel(parameter)
 
-    ax.set_xlabel(xlabel, fontsize=18)
+    if parameterr is not None:
+        ax2.plot(names, means_prr, linestyle='--')
+        ax2.set_ylim(ax2_ylim)
+
+    ax.set_xlabel(xlabel)
     ax.grid(alpha=0.25)
 
+    # print results
     if print_values:
-        if parameter == 'rmse_z' and h != 1:
-            ax.set_title('IDs: {},'.format(names) + r'$\sigma_{z}$: ' + '{}'.format(means / h))
+        print(names)
+        print('{}: {}'.format(parameter, means / h))
+        if parameterr:
+            print('{}: {}'.format(parameterr, means_prr))
+
+    return fig, ax, ax2
+
+
+def plot_dfbicts_list_global(dfbicts_list, parameters='rmse_z', xlabel='parameter', h=1, print_values=False,
+                             scale=None, colors=None, ax2_ylim=None, scatter_size=10):
+    # format figure
+    if isinstance(colors, list):
+        cscatter = iter(colors)
+        cscatterr = iter(colors)
+    elif colors == 'Blues':
+        cscatter = iter(cm.Blues(np.linspace(0.1, 0.9, len(dfbicts_list))))
+        cscatterr = iter(cm.Blues(np.linspace(0.1, 0.9, len(dfbicts_list))))
+    elif colors == 'inferno':
+        cscatter = iter(cm.inferno(np.linspace(0.1, 0.9, len(dfbicts_list))))
+        cscatterr = iter(cm.inferno(np.linspace(0.1, 0.9, len(dfbicts_list))))
+    else:
+        cscatter = None
+        cscatterr = None
+
+    if not scale:
+        fig, ax = plt.subplots()
+    else:
+        if isinstance(scale, (int, float)):
+            scalex, scaley = scale, scale
         else:
-            ax.set_title('IDs: {},'.format(names) + '{}: {}'.format(parameter, means))
+            scalex, scaley = scale[0], scale[1]
 
-    return fig, ax
+        fig, ax = plt.subplots()
+        size_x_inches, size_y_inches = fig.get_size_inches()
+        plt.close(fig)
 
-def plot_scatter_3d(df, fig=None, ax=None, elev=5, azim=-40):
+        fig, ax = plt.subplots(figsize=(size_x_inches * scalex, size_y_inches * scaley))
+
+    if isinstance(parameters, list) and len(parameters) > 1:
+        ax2 = ax.twinx()
+    else:
+        ax2 = None
+
+    for dfbicts in dfbicts_list:
+        fig, ax, ax2 = plot_dfbicts_global(dfbicts, parameters, xlabel, h, print_values,
+                                           scale=scale, fig=fig, ax=ax, ax2=ax2, ax2_ylim=ax2_ylim,
+                                           color=None, scatter_size=scatter_size)
+
+    return fig, ax, ax2
+
+
+def plot_scatter_z_color(dficts, xparameter='x', yparameter='y', zparameter='z', min_cm=0.5, z0=0, take_abs=False):
+    """
+    Plot all data (xparameter, yparameter, zparameter) as scatter points with z-parameter as colors.
+    """
+
+    for name, df in dficts.items():
+
+        ax = plt.subplot()
+
+        # filter dataframe
+        df = df[df['cm'] > min_cm]
+
+        # get x and y values
+        x = df[xparameter]
+        y = df[yparameter]
+
+        # adjust for z-offset
+        z = df[zparameter] - z0
+
+        # take absolute value
+        if take_abs:
+            z = np.abs(z)
+
+        # plot
+        data = ax.scatter(x, y, c=z)
+
+        ax.set_xlabel(xparameter, fontsize=18)
+        ax.set_ylabel(yparameter, fontsize=18)
+        ax.set_title(name, fontsize=18)
+        ax.grid(alpha=0.125)
+
+        # color bar
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="5%", pad=0.5)
+        plt.colorbar(data, cax=cax)
+
+        plt.show()
+
+    plt.close('all')
+
+
+
+def plot_scatter_3d(df, fig=None, ax=None, elev=5, azim=-40, color=None, alpha=0.75):
     """
 
     :param df: dataframe with 'x', 'y', and 'z' columns
@@ -270,13 +486,16 @@ def plot_scatter_3d(df, fig=None, ax=None, elev=5, azim=-40):
     :return:
     """
 
-    if fig is None:
+    if not fig:
         fig = plt.figure(figsize=(6, 6))
 
-    if ax is None:
+    if not ax:
         ax = fig.add_subplot(projection='3d')
 
-    ax.scatter(df.x, df.y, df.z, marker='o', c=df.z)
+    if not color:
+        color = df.z
+
+    ax.scatter(df.x, df.y, df.z, marker='o', c=color, alpha=alpha)
 
     ax.set_xlabel('x', fontsize=18)
     ax.set_ylabel('y', fontsize=18)
