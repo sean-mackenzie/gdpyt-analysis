@@ -24,7 +24,7 @@ legend_loc = 'best'
 # read files
 datasets = ['synthetic grid overlap random z nl1']
 save_ids = ['grid overlap random z']
-subsets = ['dx-5-60-5']
+subsets = ['dx-7.5-57.5-5']
 
 test_id = 0
 dataset = datasets[test_id]
@@ -34,18 +34,23 @@ subset = subsets[test_id]
 # read .xlsx result files to dictionary
 base_path = '/Users/mackenzie/Desktop/gdpyt-characterization/publication data/iteration 5/{}'.format(dataset)
 read_path_name = join(base_path, 'test_coords', subset)
-path_name = join(base_path, 'figs')
-save_path_name = join(base_path, 'results')
+path_name = join(base_path, 'figs', subset)
+save_path_name = join(base_path, 'results', subset)
 settings_sort_strings = ['settings_id', '_coords_']
 test_sort_strings = ['test_id', '_coords_']
 filetype = '.xlsx'
 
 # ------------------------------------------------
 
+# dx = 5: [93.0, 189.0, 284.0, 380.0, 475.0, 571.0, 666.0, 762.0, 858.0, 930] # for binning
+# keys (dx=5): [7.5, 10, 15, 20, 25, 30, 35, 40, 50]  # center-to-center overlap spacing
+# dx = 7.5: [79.0, 163.5, 254.0, 348.5, 447.0, 555.5, 665.0, 777.5, 900.0]
+# keys (dx=7.5): [7.5, 12.5, 17.5, 22.5, 27.5, 32.5, 37.5, 42.5, 47.5]
+
 # split dataframe by parameters/values
 column_to_split = 'x'
-# splits = np.array([93.0, 189.0, 284.0, 380.0, 475.0, 571.0, 666.0, 762.0, 858.0, 930])  # 10 columns: all data
-splits = np.array([93.0, 189.0, 284.0, 380.0, 475.0, 571.0, 666.0, 762.0, 837.0, 930])  # removed double overlap
+splits = np.array([79.0, 163.5, 254.0, 348.5, 447.0, 555.5, 665.0, 777.5, 900.0])
+keys = [7.5, 12.5, 17.5, 22.5, 27.5, 32.5, 37.5, 42.5, 47.5]
 round_x_to_decimal = 0
 
 # bin data for uncertainty assessment
@@ -56,18 +61,15 @@ round_z_to_decimal = 5
 # filters for binning
 h = 80
 z_range = [-40.001, 40.001]
-min_cm = 0.9
+min_cm = 0.6
 
 # assess convergence
 inspect_convergence_of_key = 1.0
 convergence_increments = 3
 
-# identify data
-keys = [60, 5, 10, 15, 20, 25, 30, 35, 40, 50]  # center-to-center overlap spacing
-
 # split dict by key
-inspect_gdpyt_by_key = 1.0
-inspect_spc_by_key = 11.0
+inspect_gdpyt_by_key = 2.0
+inspect_spc_by_key = 12.0
 filter_keys = 0  # Note: all values greater than this will be collected
 
 # -----------------------
@@ -114,17 +116,6 @@ ylim_percent_true_measured_global = [0, 101]
 ylim_percent_measured_global = [0, 101]
 ylim_cm_global = [min_cm, 1.01]
 
-# sweep c_m
-split_keys = 10  # split static (less than) and SPC (greater than)
-cm_i = min_cm
-cm_f = 0.995
-cm_steps = 50
-xlabel_for_cm_sweep_keys = r'$c_{m}$'
-dft_number_ylabel = r'$\frac{\phi_{ID}^2}{\phi}$'
-ylim_global_cm_sweep = [-0.0005, 0.1505]
-ylim_global_nd_tracking = [-0.0005, 1.5]
-smooth_plots = True
-
 # convergence assessment
 ylim_global_convergence = None  # static: [0.0095, 0.0105], spc: [0.08, 0.0915]
 xlabel_for_convergence = r'$N (\#\:of\:images)$'
@@ -145,27 +136,21 @@ dficts_ground_truth = io.read_ground_truth_files(dfsettings)
 
 # ---------------------------------------------------------------
 # filter out particle ID's > 170 (because likely due to image segmentation problems)
-dficts = filter.dficts_filter(dfictss=dficts, keys=['id'], values=[170], operations=['lessthan'], copy=True)
-
-# filter out the double overlapped particle at x_true = 875
-dficts = filter.dficts_filter(dfictss=dficts, keys=['x_true'], values=[[870.0, 890.0]], operations=['not_between'], copy=True)
-dficts_ground_truth = filter.dficts_filter(dfictss=dficts_ground_truth, keys=['x'], values=[[870.0, 890.0]], operations=['not_between'], copy=True)
+dficts = filter.dficts_filter(dfictss=dficts, keys=['id'], values=[216], operations=['lessthan'], copy=True)
 
 # ---------------------------------------------------------------
 # analyze by method: bin by number of bins
-min_cm = cm_i
 
 # calculate local rmse_z
 dfbicts = analyze.calculate_bin_local_rmse_z(dficts, column_to_bin_and_assess, bins, min_cm, z_range,
                                              round_z_to_decimal, dficts_ground_truth=dficts_ground_truth)
-
 
 # calculate mean measurement results and export to excel
 dfm = analyze.calculate_bin_measurement_results(dfbicts, norm_rmse_z_by_depth=h, norm_num_by_bins=bins)
 io.export_df_to_excel(dfm, path_name=join(save_path_name, save_id+'_measurement_results'),
                       include_index=True, index_label='test_id', filetype='.xlsx', drop_columns=results_drop_columns)
 
-# compare all local
+# compare local
 """
 if save_plots:
     # plot methods comparison local results
@@ -248,6 +233,7 @@ gdpt_ids = [xk for xk, xv in dfbicts_spc.items() if xk > filter_keys]
 gdpt_dfs = [xv for xk, xv in dfbicts_spc.items() if xk > filter_keys]
 dfbicts_spc = {gdpt_ids[i]: gdpt_dfs[i] for i in range(len(gdpt_ids))}
 
+
 # stack measurement results by bin and export to excel
 dfbz_gdpyt = modify.stack_dficts_by_key(dfbicts_gdpyt)
 dfbz_spc = modify.stack_dficts_by_key(dfbicts_spc)
@@ -257,6 +243,7 @@ io.export_df_to_excel(dfbz_gdpyt, path_name=join(save_path_name, save_id+'_stati
 io.export_df_to_excel(dfbz_spc, path_name=join(save_path_name, save_id+'_spc_dx_local_measurement_results'),
                       include_index=True, index_label='bin_z', filetype='.xlsx', drop_columns=results_drop_columns)
 """
+
 # ----------------------------------------------------------
 # plot local - compare methods on filtered data
 """
@@ -570,8 +557,20 @@ if save_plots:
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# start analysis
+# cm sweep analysis
 """
+# setup
+split_keys = 10  # split static (less than) and SPC (greater than)
+cm_i = 0.5
+cm_f = 0.995
+cm_steps = 150
+xlabel_for_cm_sweep_keys = r'$c_{m}$'
+dft_number_ylabel = r'$\frac{\phi_{ID}^2}{\phi}$'
+ylim_global_cm_sweep = [-0.0005, 0.1505]
+ylim_global_nd_tracking = [-0.0005, 1.5]
+smooth_plots = True
+
+# analyze
 min_cm_sweep = np.round(np.linspace(cm_i, cm_f, cm_steps), 6)
 
 for min_cm in min_cm_sweep:
@@ -613,7 +612,6 @@ for min_cm in min_cm_sweep:
         dfm_cm_sweep_gdpyt = pd.concat([dfm_cm_sweep_gdpyt, dfm_gdpyt])
         dfm_cm_sweep_spc = pd.concat([dfm_cm_sweep_spc, dfm_spc])
 
-# export results
 io.export_df_to_excel(dfm_cm_sweep_gdpyt, path_name=join(save_path_name, save_id + '_gdpyt_cm_sweep_measurement_results'),
                       include_index=True, index_label='test_id', filetype='.xlsx',
                       drop_columns=results_drop_columns)
@@ -634,15 +632,15 @@ plt.tight_layout()
 plt.savefig(join(path_name, save_id + '_gdpyt_cm_sweep_normalized_uncertainty_percent_meas.png'))
 plt.show()
 
-
 # normalized z-uncertainty by normalized true percent measured
 x = dfm_cm_sweep_gdpyt.cm_threshold
 y1 = (dfm_cm_sweep_gdpyt.true_percent_meas / dfm_cm_sweep_gdpyt.true_percent_meas.to_numpy()[0]) / (dfm_cm_sweep_gdpyt.rmse_z / dfm_cm_sweep_gdpyt.rmse_z.to_numpy()[0])
 y2 = (dfm_cm_sweep_gdpyt.percent_meas / dfm_cm_sweep_gdpyt.percent_meas.to_numpy()[0]) / (dfm_cm_sweep_gdpyt.rmse_z / dfm_cm_sweep_gdpyt.rmse_z.to_numpy()[0])
+
 # maximum non-dimensional value and corresponding c_m
-ND_max = np.min(y1)
-ND_max_index = np.argmin(y1)
-ND_max_cm = x.iloc(ND_max_index)
+# ND_max = np.min(y1)
+# ND_max_index = np.argmin(y1)
+# ND_max_cm = x.iloc(ND_max_index)
 
 # uncertainty & true percent measured
 y3 = dfm_cm_sweep_gdpyt.rmse_z
@@ -659,17 +657,16 @@ ND_max = np.min(y1)
 ND_max_index = np.argmin(y1)
 ND_max_cm = x.iloc[ND_max_index]
 
-
 # groupby cm_threshold for mean value at each cm
 dfm_cm_sweep_mean_gdpyt = dfm_cm_sweep_gdpyt.reset_index()
 dfm_cm_sweep_mean_gdpyt = dfm_cm_sweep_mean_gdpyt.groupby(by=['cm_threshold']).mean()
-io.export_df_to_excel(dfm_cm_sweep_mean_gdpyt, path_name=join(save_path_name, save_id + '_gdpyt_cm_sweep_measurement_results'),
+io.export_df_to_excel(dfm_cm_sweep_mean_gdpyt, path_name=join(save_path_name, save_id + '_gdpyt_cm_sweep_mean_measurement_results'),
                           include_index=True, index_label='cm_threshold', filetype='.xlsx',
                           drop_columns=results_drop_columns)
 
 dfm_cm_sweep_mean_spc = dfm_cm_sweep_spc.reset_index()
 dfm_cm_sweep_mean_spc = dfm_cm_sweep_mean_spc.groupby(by=['cm_threshold']).mean()
-io.export_df_to_excel(dfm_cm_sweep_mean_spc, path_name=join(save_path_name, save_id + '_spc_cm_sweep_measurement_results'),
+io.export_df_to_excel(dfm_cm_sweep_mean_spc, path_name=join(save_path_name, save_id + '_spc_cm_sweep_mean_measurement_results'),
                           include_index=True, index_label='cm_threshold', filetype='.xlsx',
                           drop_columns=results_drop_columns)
 
@@ -747,6 +744,8 @@ plt.savefig(join(path_name, save_id + '_static_v_SPC_sweep_cm_global_dft_number.
 if show_plots:
     plt.show()
 """
+# ---------------------------------------------------------------
+
 
 # ---------------------------------------------------------------
 # analyze convergence of rmse_z wrt # of frames

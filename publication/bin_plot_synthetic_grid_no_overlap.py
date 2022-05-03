@@ -42,13 +42,13 @@ filetype = '.xlsx'
 
 # bin data for uncertainty assessment
 column_to_bin_and_assess = 'z_true'
-bins = 25
+bins = 1
 round_z_to_decimal = 5
 
 # filters for binning
 h = 80
 z_range = [-40.001, 40.001]
-min_cm = 0.5
+min_cm = 0.9
 min_cm2 = 0.9
 
 # split dict by key
@@ -68,7 +68,7 @@ results_drop_columns = ['frame', 'id', 'stack_id', 'z_true', 'z', 'x', 'y', 'x_t
 # formatting figures
 
 # compare static and spc
-labels_compare = ['GDPyT', 'GDPT']  # [0, 1, 2, 3, 4, 5, 6, 7, 8]  # ['GDPyT', 'GDPT']
+labels_compare = ['IDPT', 'SPCT']  # [0, 1, 2, 3, 4, 5, 6, 7, 8]  # ['GDPyT', 'GDPT']
 colors_compare = None  # ['tab:blue', 'darkblue']
 # compare all
 ylim_compare_all = [-0.01, 0.1]
@@ -151,6 +151,7 @@ dfbicts = analyze.calculate_bin_local_rmse_z(dficts, column_to_bin_and_assess, b
 
 # calculate mean measurement results and export to excel
 """
+"""
 dfm = analyze.calculate_bin_measurement_results(dfbicts, norm_rmse_z_by_depth=h, norm_num_by_bins=bins)
 io.export_df_to_excel(dfm, path_name=join(save_path_name, save_id+'_measurement_results'),
                       include_index=True, index_label='test_id', filetype='.xlsx', drop_columns=results_drop_columns)
@@ -193,10 +194,10 @@ ax.legend(labels_compare, loc=legend_loc)
 plt.tight_layout()
 plt.savefig(join(path_name, save_id+'_compare_all_local_rmse_z_and_cm.png'))
 plt.show()
-"""
+
 # ---------------------------------------------------------------
 # analyze convergence of rmse_z wrt # of frames
-
+"""
 for inspect_convergence_of_key in inspect_convergence_of_keys:
 
     dficts_cumlative, dficts_ground_truth_cumlative = modify.split_dficts_cumulative_series(dficts, dficts_ground_truth,
@@ -220,5 +221,5 @@ for inspect_convergence_of_key in inspect_convergence_of_keys:
     dfm_cumlative = analyze.calculate_bin_measurement_results(dfbicts_cumlative, norm_rmse_z_by_depth=h, norm_num_by_bins=bins)
     io.export_df_to_excel(dfm_cumlative, path_name=join(save_path_name, save_id+'_measurement_convergence_key{}'.format(inspect_convergence_of_key)),
                           include_index=True, index_label='test_id', filetype='.xlsx', drop_columns=results_drop_columns)
-
+"""
 # ---------------------------------------------------------------

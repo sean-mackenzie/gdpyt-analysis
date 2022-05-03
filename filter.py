@@ -6,52 +6,121 @@ Notes
 # imports
 import pandas as pd
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
 
 # scripts
 
-def dficts_filter(dfictss, keys, values, operations='greaterthan', copy=True):
+def dficts_filter(dfictss, keys, values, operations='greaterthan', copy=True, only_keys=None, return_filtered=False):
 
     if copy:
         dficts = dfictss.copy()
     else:
         dficts = dfictss
 
+    if return_filtered:
+        dficts_filtered_out = {}
+
     for name, df in dficts.items():
+
+        if only_keys:
+            if name in only_keys:
+                pass
+            else:
+                continue
+
         for key, value, operation in zip(keys, values, operations):
 
             initial_length = len(df)
 
             # filter
-            if operation == 'greaterthan':
+            if operation == 'equalto':
+                dff = df[df[key] != value]
+                df = df[df[key] == value]
+
+            elif operation == 'notequalto':
+                dff = df[df[key] == value]
+                df = df[df[key] != value]
+
+            elif operation == 'isin':
+                inverse_boolean_series = ~df[key].isin(value)
+                dff = df[inverse_boolean_series]
+                boolean_series = df[key].isin(value)
+                df = df[boolean_series]
+
+            elif operation == 'notin':
+                inverse_boolean_series = df[key].isin(value)
+                dff = df[inverse_boolean_series]
+                boolean_series = ~df[key].isin(value)
+                df = df[boolean_series]
+
+            elif operation == 'greaterthan':
+                dff = df[df[key] < value]
                 df = df[df[key] > value]
+
             elif operation == 'lessthan':
+                dff = df[df[key] > value]
                 df = df[df[key] < value]
+
+            elif operation == 'not_between':
+                dff = df[(df[key] > value[0]) & (df[key] < value[1])]
+                df = df[(df[key] < value[0]) | (df[key] > value[1])]
+
+            elif operation == 'between':
+                dff = df[(df[key] < value[0]) | (df[key] > value[1])]
+                df = df[(df[key] > value[0]) & (df[key] < value[1])]
+
             else:
                 raise ValueError("{} operation not implemented.")
 
             filtered_length = len(df)
 
-            print("{} rows ({}%) filtered from id {} dataframe.".format(filtered_length-initial_length,
-                                                                        np.round(100 * (1 - filtered_length/initial_length), 1),
-                                                                        name))
+            print("{} rows ({}%) filtered out of ID {}: PASSING {} {}".format(filtered_length-initial_length,
+                                                                              np.round(100 * (1 - filtered_length/initial_length), 1),
+                                                                              name,
+                                                                              operation,
+                                                                              value))
 
         # update the dictionary
         dficts.update({name: df})
 
-    return dficts
+        # update the filtered out dictionary
+        if return_filtered:
+            dficts_filtered_out.update({name: dff})
+
+    if return_filtered:
+        return dficts, dficts_filtered_out
+    else:
+        return dficts
 
 
 def dficts_dropna(dficts, columns=['z']):
 
-    for item in dficts.items():
+    for name, df in dficts.items():
 
-        # get name and dataframe (for readability)
-        name = item[0]
-        df = item[1]
+        i_rows = len(df)
 
         df = df.dropna(axis=0, subset=columns)
+
+        f_rows = len(df)
+        print("Dropped {} rows out of {} ({}%)".format(i_rows - f_rows, i_rows, np.round(f_rows / i_rows * 100, 1)))
 
         # update the dictionary
         dficts.update({name: df})
 
     return dficts
+
+
+def find_nearest_neighbors(df_baseline_locations, pid_location, threshold=10, n_neighbors=1, algorithm='ball_tree'):
+
+    baseline_xy = df_baseline_locations[['x', 'y']]
+
+    particles = df_baseline_locations.id.unique()
+
+    nneigh = NearestNeighbors(n_neighbors=n_neighbors, algorithm=algorithm).fit(baseline_xy.values)
+    distances, indices = nneigh.kneighbors(np.array(pid_location))
+
+    for distance, idx, particle in zip(distances, indices, particles):
+        if distance < threshold:
+            j = 1
+        else:
+            jj = 1

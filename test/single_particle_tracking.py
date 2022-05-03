@@ -2,7 +2,7 @@
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-from utils import io, plotting, bin, modify, fit
+from utils import io, plotting, bin, modify, fit, functions
 import filter, analyze
 from tracking import plotting as trackplot
 
@@ -84,7 +84,7 @@ px2, py2, pz2 = fit.fit_3d(points2, fit_function='plane')
 
 a = np.dstack((px, py, pz))
 b = np.dstack((px2, py2, pz2))
-thetax, thetay = analyze.calculate_angle_between_planes(a, b)
+thetax, thetay = functions.calculate_angle_between_planes(a, b)
 
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
