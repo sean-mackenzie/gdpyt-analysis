@@ -52,8 +52,8 @@ Process of this code:
 """
 Blue: #0C5DA5
 Green: #00B945
-Red: #FF9500
-Orange: #FF2C00
+Red: #FF2C00
+Orange: #FF9500
 
 Other Colors:
 Light Blue: #7BC8F6

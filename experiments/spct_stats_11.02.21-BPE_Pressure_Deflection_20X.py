@@ -59,12 +59,23 @@ path_figs = join(path_spct_calib1, 'figs')
 # ----------------------------------------------------------------------------------------------------------------------
 
 # ----------------------------------------------------------------------------------------------------------------------
-# 3. ANALYSIS - SPCT STATS
+# 3. ANALYSIS
 
 method = 'spct'
 microns_per_pixel = 0.8
 
-plot_collections.plot_spct_stats(base_dir=path_spct_calib1)
+# --- 3.1 SPCT STATS
+
+analyze_spct_stats = False
+
+if analyze_spct_stats:
+    plot_collections.plot_spct_stats(base_dir=path_spct_calib1)
+
+# --- 3.2 APPARENT PARTICLE POSITIONS
+
+
+# --- 3.3 PARTICLE TO PARTICLE SIMILARITIES
+
 
 
 j = 1

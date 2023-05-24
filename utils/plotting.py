@@ -1,13 +1,12 @@
-
 # imports
 import numpy as np
 import pandas as pd
-from scipy.interpolate import griddata, Akima1DInterpolator
+from scipy.interpolate import griddata, Akima1DInterpolator, CloughTocher2DInterpolator
 from scipy.stats import norm
 from sklearn.neighbors import KernelDensity
 from sklearn.utils.fixes import parse_version
 
-from utils import fit, modify
+from utils import fit, modify, functions
 
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
@@ -18,17 +17,16 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib import collections, colors, transforms
 
 # formatting
-plt.rcParams['legend.title_fontsize'] = 'large'
-plt.rcParams['legend.fontsize'] = 'medium'
-fontP = FontProperties()
-fontP.set_size('medium')
-
 plt.style.use(['science', 'ieee', 'std-colors'])
 # plt.style.use(['science', 'scatter'])
 fig, ax = plt.subplots()
 size_x_inches, size_y_inches = fig.get_size_inches()
 plt.close(fig)
 
+sciblue = '#0C5DA5'
+scigreen = '#00B945'
+scired = '#FF2C00'
+sciorange = '#FF9500'
 
 
 def plot_scatter(dficts, xparameter='y', yparameter='z', min_cm=0.5, z0=0, take_abs=False,
@@ -45,7 +43,7 @@ def plot_scatter(dficts, xparameter='y', yparameter='z', min_cm=0.5, z0=0, take_
     """
 
     fig, ax = plt.subplots(figsize=figsize)
-    #cscatter = iter(cm.Spectral(np.linspace(0.95, 0.2, len(dficts.keys()))))
+    # cscatter = iter(cm.Spectral(np.linspace(0.95, 0.2, len(dficts.keys()))))
 
     for name, df in dficts.items():
 
@@ -70,7 +68,7 @@ def plot_scatter(dficts, xparameter='y', yparameter='z', min_cm=0.5, z0=0, take_
             y = np.abs(y)
 
         # plot
-        #cs = next(cscatter)
+        # cs = next(cscatter)
         ax.scatter(x, y, s=scattersize)
 
     # ax.set_xlabel(xparameter, fontsize=18)
@@ -166,7 +164,8 @@ def plot_errorbars(dfbicts, xparameter='index', yparameter='z', min_cm=0.5, z0=0
 
         # plot
         cs = next(cscatter)
-        ax.errorbar(x, y, yerr=df.z_std * 2, fmt='o', color=cs, ecolor=next(cerror), elinewidth=1, capsize=2, alpha=0.75)
+        ax.errorbar(x, y, yerr=df.z_std * 2, fmt='o', color=cs, ecolor=next(cerror), elinewidth=1, capsize=2,
+                    alpha=0.75)
         ax.scatter(x, y, color=cs)
 
     ax.set_xlabel(xparameter, fontsize=18)
@@ -297,11 +296,12 @@ def plot_dfbicts_local(dfbicts, parameters='rmse_z', h=1, colors=None, linestyle
         plt.close(fig)
 
         if nrows:
-            fig, [ax, ax2] = plt.subplots(nrows=2, sharex=True, figsize=(size_x_inches * scalex, size_y_inches * scaley))
+            fig, [ax, ax2] = plt.subplots(nrows=2, sharex=True,
+                                          figsize=(size_x_inches * scalex, size_y_inches * scaley))
         elif ncols:
             fig, [ax, ax2] = plt.subplots(ncols=2, figsize=(size_x_inches * scalex, size_y_inches * scaley))
         else:
-            fig, ax = plt.subplots(figsize=(size_x_inches*scalex, size_y_inches*scaley))
+            fig, ax = plt.subplots(figsize=(size_x_inches * scalex, size_y_inches * scaley))
 
     # organize data
     if (isinstance(parameters, str)) or (isinstance(parameters, list) and len(parameters) == 1):
@@ -423,7 +423,6 @@ def plot_dfbicts_local(dfbicts, parameters='rmse_z', h=1, colors=None, linestyle
 def plot_dfbicts_global(dfbicts, parameters='rmse_z', xlabel='parameter', h=1, print_values=False,
                         scale=None, fig=None, ax=None, ax2=None, ax2_ylim=None, color=None, scatter_size=10,
                         smooth=False, ylabel=None):
-
     if fig is None and ax is None:
 
         if not scale:
@@ -655,7 +654,6 @@ def plot_scatter_3d(df, fig=None, ax=None, elev=5, azim=-40, color=None, alpha=0
 
 
 def plot_scatter_3d_multi_angle(df, z_param='z'):
-
     fig = plt.figure(figsize=(6.5, 5))
     for i, v in zip(np.arange(1, 5), [45, 0, 315, 270]):
         ax = fig.add_subplot(2, 2, i, projection='3d')
@@ -680,15 +678,15 @@ def plot_scatter_3d_multi_angle(df, z_param='z'):
 
     return fig, ax
 
-def plot_heatmap(df, fig=None, ax=None):
 
+def plot_heatmap(df, px='x', py='y', pz='z', fig=None, ax=None):
     # drop NaNs
-    dfc = df.dropna(axis=0, subset=['z'])
+    dfc = df.dropna(axis=0, subset=[pz])
 
     # move x, y, z series to numpy arrays
-    x = dfc.x.to_numpy()
-    y = dfc.y.to_numpy()
-    z = dfc.z.to_numpy()
+    x = dfc[px].to_numpy()
+    y = dfc[py].to_numpy()
+    z = dfc[pz].to_numpy()
 
     # get spatial coordinate extents
     xspace = np.max(x) - np.min(x)
@@ -750,7 +748,7 @@ def scatter_z_by_xy(df, z_params):
     if not isinstance(z_params, list):
         z_params = [z_params]
 
-    fig, ax = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches*2, size_y_inches))
+    fig, ax = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches * 2, size_y_inches))
 
     for z_param in z_params:
         ax[0].scatter(df.x, df[z_param], s=3)
@@ -765,7 +763,6 @@ def scatter_z_by_xy(df, z_params):
 
 
 def plot_fitted_plane_and_points(df, dict_fit_plane):
-
     param_z = dict_fit_plane['z_f']
     rmse, r_squared = dict_fit_plane['rmse'], dict_fit_plane['r_squared']
     tilt_x, tilt_y = dict_fit_plane['tilt_x_degrees'], dict_fit_plane['tilt_y_degrees']
@@ -814,7 +811,6 @@ def plot_fitted_plane_and_points(df, dict_fit_plane):
 
 
 def scatter_3d_and_surface(x, y, z, func, func_params, fit_params, cmap='RdBu', grid_resolution=30, view='multi'):
-
     # setup data points for calculating surface model
     model_x_data = np.linspace(min(x), max(x), grid_resolution)
     model_y_data = np.linspace(min(y), max(y), grid_resolution)
@@ -871,15 +867,20 @@ def scatter_3d_and_surface(x, y, z, func, func_params, fit_params, cmap='RdBu', 
     return fig, ax
 
 
-def scatter_3d_and_spline(x, y, z, bispl, cmap='RdBu', grid_resolution=25, view='multi'):
-
+def scatter_3d_and_spline(x, y, z, bispl,
+                          cmap='RdBu', grid_resolution=25, view='multi', units=r'$(pixels)$',
+                          bispl_z_offset=0, zlim_range=None,
+                          scatter_size=1, scatter_cmap='cool', scatter_alpha=0.8, surface_alpha=0.3):
     # setup data points for calculating surface model
     model_x_data = np.linspace(min(x), max(x), grid_resolution)
     model_y_data = np.linspace(min(y), max(y), grid_resolution)
 
     # create coordinate arrays for vectorized evaluations
     X, Y = np.meshgrid(model_x_data, model_y_data)
-    Z = bispl.ev(X, Y)
+    Z = bispl.ev(X, Y) + bispl_z_offset
+
+    if zlim_range is not None:
+        zlim = [np.mean(Z) - zlim_range, np.mean(Z) + zlim_range]
 
     # plot
     if view == 'multi':
@@ -887,23 +888,30 @@ def scatter_3d_and_spline(x, y, z, bispl, cmap='RdBu', grid_resolution=25, view=
         for i, v in zip(np.arange(1, 5), [315, 0, 225, 90]):
 
             ax = fig.add_subplot(2, 2, i, projection='3d')
-            sc = ax.scatter(x, y, z, c=z, s=0.5, alpha=0.75)
-            ps = ax.plot_surface(X, Y, Z, cmap=cmap, alpha=0.25)
+            sc = ax.scatter(x, y, z, c=z, s=scatter_size, cmap=scatter_cmap, alpha=scatter_alpha)
+            ps = ax.plot_surface(X, Y, Z, cmap=cmap, alpha=surface_alpha)
             ax.view_init(5, v)
             ax.patch.set_alpha(0.0)
             if i == 2:
                 plt.colorbar(sc, shrink=0.5)
                 ax.get_xaxis().set_ticks([])
-                ax.set_ylabel(r'$y \: (pixels)$')
+                ax.set_ylabel(r'$y$' + ' ' + units)
+                # ax.set_yticks([-1200, -900, -600])
                 ax.set_zlabel(r'$z \: (\mu m)$')
             elif i == 4:
                 ax.get_yaxis().set_ticks([])
-                ax.set_xlabel(r'$x \: (pixels)$')
+                ax.set_xlabel(r'$x$' + ' ' + units)
+                # ax.set_xticks([400, 800, 1200])
                 ax.set_zlabel(r'$z \: (\mu m)$')
             else:
-                ax.set_xlabel(r'$x \: (pixels)$')
-                ax.set_ylabel(r'$y \: (pixels)$')
+                ax.set_xlabel(r'$x$' + ' ' + units)
+                # ax.set_xticks([400, 800, 1200])
+                ax.set_ylabel(r'$y$' + ' ' + units)
+                # ax.set_yticks([-1200, -900, -600])
                 ax.get_zaxis().set_ticklabels([])
+
+            if zlim_range is not None:
+                ax.set_zlim3d(zlim)
     else:
         fig = plt.figure()
         ax = Axes3D(fig)
@@ -920,7 +928,279 @@ def scatter_3d_and_spline(x, y, z, bispl, cmap='RdBu', grid_resolution=25, view=
     return fig, ax
 
 
+def interpolate_3d_surface(x, y, z):
+    """
+    x, y, and z need to be numpy arrays.
+
+    * Note: Can add options to change grid size in the future.
+
+    :param x:
+    :param y:
+    :param z:
+    :return:
+    """
+    # get the range of points for the 2D surface space
+    xr = (x.min(), x.max())
+    yr = (y.min(), y.max())
+
+    # create the 2D surface grid to interpolate over
+    grid_x, grid_y = np.mgrid[yr[0]:yr[1]:16j, xr[0]:xr[1]:16j]
+
+    # interpolate
+    grid_z = griddata(np.vstack((x, y)).T, z, (grid_y, grid_x), method='cubic')
+
+    fig, ax = plt.subplots()
+    ax.imshow(grid_z.T, origin='lower')
+    plt.show()
+    plt.close()
+
+    # plot
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+    surf = ax.plot_surface(grid_y, grid_x, grid_z, cmap=cm.coolwarm, linewidth=0, antialiased=False)
+    ax.set_xlabel(r'$\Delta z \: (\mu m)$')
+    ax.set_ylabel(r'$\delta x \: (pixels)$')
+    ax.set_zlabel(r'$\sigma_z \: (\mu m)$')
+    ax.view_init(30, 240)
+
+    return fig, ax
+
+
+def plot_surface_with_colors_as_value(base_dir_idpt):
+    df = pd.read_excel(base_dir_idpt + '/results/test_coords_spct-corrected-and-filtered-and-plane-error.xlsx')
+
+    # remove errors > 5
+    df = df[(df['error'].abs() < 4)]
+
+    for bn in df.binn.unique():
+
+        dfb = df[df['binn'] == bn]
+
+        # take mean and std
+        dfm = dfb.groupby('id').mean()
+        dfstd = dfb.groupby('id').std()
+
+        # get data arrays
+        x = dfm.x.to_numpy()
+        y = dfm.y.to_numpy()
+        z = dfstd.z_plane_error.to_numpy()
+        print("mean z precision: {}".format(np.mean(z)))
+
+        num = 128
+        xr = (x.min(), x.max())
+        yr = (y.min(), y.max())
+
+        use_CT = False
+
+        if use_CT:
+            X = np.linspace(min(x), max(x), num)
+            Y = np.linspace(min(y), max(y), num)
+            X, Y = np.meshgrid(X, Y)
+            interp = CloughTocher2DInterpolator(list(zip(x, y)), z)
+            Z = interp(X, Y)
+
+        else:
+            # create the 2D surface grid to interpolate over
+            X, Y = np.mgrid[yr[0]:yr[1]:128j, xr[0]:xr[1]:128j]
+            Z = griddata(np.vstack((x, y)).T, z, (Y, X), method='nearest')
+
+        # fit plane
+        points_pixels = np.stack((dfm.x, dfm.y, dfm.z)).T
+        px, py, pz, popt_pixels = fit.fit_3d_plane(points_pixels)
+
+        # calculate fit error
+        Zp = functions.calculate_z_of_3d_plane(X, Y, popt=popt_pixels)
+        Zclr = cm.coolwarm(Z)
+
+        fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+        surf = ax.plot_surface(X, Y, Zp, facecolors=Zclr, linewidth=0, antialiased=True)  # , alpha=0.4)
+        # sc = ax.scatter(dfm.x, dfm.y, dfm.z, color='red', s=1, zorder=3.5)
+
+        zm = dfm.z.mean()
+        ax.set_zlim([zm - 2.5, zm + 2.5])
+        ax.set_zlabel(r"$z \: (\mu m)$", labelpad=0)
+
+        ax.w_xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        ax.w_yaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        ax.w_zaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        ax.grid(False)
+
+        for line in ax.xaxis.get_ticklines():
+            line.set_visible(False)
+        for line in ax.yaxis.get_ticklines():
+            line.set_visible(False)
+        for line in ax.zaxis.get_ticklines():
+            line.set_visible(False)
+
+        ax.xaxis.set_ticklabels([])
+        ax.yaxis.set_ticklabels([])
+
+        ax.view_init(15, 45)
+        plt.show()
+        plt.close()
+
+
+# plot kernel density estimation
+def scatter_and_kde_y(x, y, binwidth_y=1,
+                      kde=True, bandwidth_y=0.5,
+                      centerline=True,
+                      color=None, colormap='coolwarm', scatter_size=0.5,
+                      figsize_scale=(1, 1), save_path=None, show_plot=True):
+    fig = plt.figure(figsize=(size_x_inches * figsize_scale[0], size_y_inches * figsize_scale[1]))
+
+    # Add a gridspec with two rows and two columns and a ratio of 2 to 7 between
+    # the size of the marginal axes and the main axes in both directions.
+    # Also adjust the subplot parameters for a square plot.
+    gs = fig.add_gridspec(1, 2, width_ratios=(7, 2),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9, wspace=0.075, hspace=0.075)
+
+    ax = fig.add_subplot(gs[0, 0])
+    ax_histy = fig.add_subplot(gs[0, 1], sharey=ax)
+
+    # no labels
+    ax_histy.tick_params(axis="y", labelleft=False)
+
+    # the scatter plot:
+    if color is not None:
+        ax.scatter(x, y, s=scatter_size, marker='.', c=color, cmap=colormap)
+    else:
+        ax.scatter(x, y, s=scatter_size, marker='.', color=sciblue)
+
+    if centerline:
+        ax.axhline(y=0, linewidth=0.25, linestyle='--', color='black', alpha=0.5)
+
+    # y
+    ylim_low = (int(np.min(y) / binwidth_y) - 1) * binwidth_y  # + binwidth_y
+    ylim_high = (int(np.max(y) / binwidth_y) + 1) * binwidth_y - binwidth_y
+    ybins = np.arange(ylim_low, ylim_high + binwidth_y, binwidth_y)
+    ny, binsy, patchesy = ax_histy.hist(y, bins=ybins, orientation='horizontal', color='gray', zorder=2.5)
+
+    # kernel density estimation
+    if kde:
+        ymin, ymax = np.min(y), np.max(y)
+        y_range = ymax - ymin
+        y_plot = np.linspace(ymin - y_range / 5, ymax + y_range / 5, 250)
+
+        y = y[:, np.newaxis]
+        y_plot = y_plot[:, np.newaxis]
+
+        kde_y = KernelDensity(kernel="gaussian", bandwidth=bandwidth_y).fit(y)
+        log_dens_y = kde_y.score_samples(y_plot)
+        scale_to_max = np.max(ny) / np.max(np.exp(log_dens_y))
+
+        p2 = ax_histy.fill_betweenx(y_plot[:, 0], 0, np.exp(log_dens_y) * scale_to_max, fc="None", ec=scired,
+                                    zorder=2.5)
+        p2.set_linewidth(0.5)
+        # ax_histy.plot(y_plot[:, 0], np.exp(log_dens_y) * scale_to_max, linestyle='-', color=scired)
+        ax_histy.set_xlabel('counts')
+
+    ax.set_xlabel(r'$z \: (\mu m)$')
+    ax.set_ylabel(r'$\epsilon_{z} \: (\mu m)$')
+    ax.set_ylim([-5.5, 5.5])
+    ax.set_yticks([-4, -2, 0, 2, 4])
+    fig.subplots_adjust(bottom=0.1, left=0.1)  # adjust space between axes
+
+    if save_path is not None:
+        plt.savefig(save_path)
+    if show_plot:
+        plt.show()
+
+
+# plot kernel density estimation
+def scatter_and_kde_x_and_y(x, y,
+                            binwidth_x=1, binwidth_y=1,
+                            kde_x=True, kde_y=True,
+                            bandwidth_x=0.5, bandwidth_y=0.5,
+                            color=None, colormap='coolwarm', scatter_size=0.5,
+                            xlbl=None, ylbl=None,
+                            xticks=None,
+                            figsize=(size_x_inches, size_y_inches),
+                            save_path=None, show_plot=True,
+                            ):
+    fig = plt.figure(figsize=figsize)
+
+    # Add a gridspec with two rows and two columns and a ratio of 2 to 7 between
+    # the size of the marginal axes and the main axes in both directions.
+    # Also adjust the subplot parameters for a square plot.
+    gs = fig.add_gridspec(2, 2, width_ratios=(7, 1.5), height_ratios=(2, 7),
+                          left=0.1, right=0.9, bottom=0.1, top=0.9,
+                          wspace=0.075, hspace=0.075)
+
+    ax = fig.add_subplot(gs[1, 0])
+    ax_histx = fig.add_subplot(gs[0, 0], sharex=ax)
+    ax_histy = fig.add_subplot(gs[1, 1], sharey=ax)
+
+    # must label histx before (for reasons I don't understand)
+    ax_histx.set_ylabel('counts')
+
+    # no labels
+    ax_histx.tick_params(axis="x", labelbottom=False)
+    ax_histy.tick_params(axis="y", labelleft=False)
+
+    # the scatter plot:
+    if color is not None:
+        ax.scatter(x, y, c=color, s=scatter_size, marker='.', cmap=colormap)
+    else:
+        ax.scatter(x, y, s=scatter_size, marker='.', color='black')
+
+    # x
+    xlim_low = (int(np.min(x) / binwidth_x) - 1) * binwidth_x + binwidth_x
+    xlim_high = (int(np.max(x) / binwidth_x) + 1) * binwidth_x - binwidth_x
+    xbins = np.arange(xlim_low, xlim_high + binwidth_x, binwidth_x)
+
+    # y
+    ylim_low = (int(np.min(y) / binwidth_y) - 1) * binwidth_y  # + binwidth_y
+    ylim_high = (int(np.max(y) / binwidth_y) + 1) * binwidth_y - binwidth_y
+    ybins = np.arange(ylim_low, ylim_high + binwidth_y, binwidth_y)
+
+    nx, binsx, patchesx = ax_histx.hist(x, bins=xbins, zorder=2.5, color='gray')
+    ny, binsy, patchesy = ax_histy.hist(y, bins=ybins, orientation='horizontal', color='gray', zorder=2.5)
+
+    # kernel density estimation
+    if kde_x:
+        x_plot = np.linspace(np.min(x), np.max(x), 250)
+
+        x = x[:, np.newaxis]
+        x_plot = x_plot[:, np.newaxis]
+        kde_x = KernelDensity(kernel="gaussian", bandwidth=bandwidth_x).fit(x)
+        log_dens_x = kde_x.score_samples(x_plot)
+        scale_to_max = np.max(nx) / np.max(np.exp(log_dens_x))
+        # ax_histx.fill(x_plot[:, 0], np.exp(log_dens_x) * scale_to_max, fc='lightsteelblue', zorder=2)
+        p1 = ax_histx.fill_between(x_plot[:, 0], 0, np.exp(log_dens_x) * scale_to_max,
+                                   fc="None", ec=scired, zorder=2.5)
+        p1.set_linewidth(0.5)
+        # ax_histx.plot(x_plot[:, 0], np.exp(log_dens_x) * scale_to_max, linestyle='-', color=scired, zorder=3.5)
+        ax_histx.set_ylabel('counts')
+        ax_histx.set_xlabel('counts')
+
+    if kde_y:
+        y_plot = np.linspace(np.min(y), np.max(y), 250)
+        y = y[:, np.newaxis]
+        y_plot = y_plot[:, np.newaxis]
+        kde_y = KernelDensity(kernel="gaussian", bandwidth=bandwidth_y).fit(y)
+        log_dens_y = kde_y.score_samples(y_plot)
+        scale_to_max = np.max(ny) / np.max(np.exp(log_dens_y))
+        p2 = ax_histy.fill_betweenx(y_plot[:, 0], 0, np.exp(log_dens_y) * scale_to_max,
+                                    fc="None", ec=scired, zorder=2.5)
+        p2.set_linewidth(0.5)
+        # ax_histy.plot(y_plot[:, 0], np.exp(log_dens_y) * scale_to_max, linestyle='-', color=scired)
+        ax_histy.set_xlabel('counts')
+
+    ax.set_xlabel(xlbl)
+    ax.set_ylabel(ylbl)
+
+    if xticks is not None:
+        ax.set_xticks(xticks)
+
+    fig.subplots_adjust(bottom=0.1, left=0.1)  # adjust space between axes
+
+    if save_path is not None:
+        plt.savefig(save_path)
+    if show_plot:
+        plt.show()
+
+
 def scatter_hist(x, y, fig, color=None, colormap='coolwarm', scatter_size=1, kde=True, distance_from_mean=10):
+    """ This one should be deprecated """
 
     # Add a gridspec with two rows and two columns and a ratio of 2 to 7 between
     # the size of the marginal axes and the main axes in both directions.
@@ -950,7 +1230,7 @@ def scatter_hist(x, y, fig, color=None, colormap='coolwarm', scatter_size=1, kde
     # now determine nice limits by hand:
     binwidth = 0.25
     xymax = max(np.max(np.abs(x)), np.max(np.abs(y)))
-    lim = (int(xymax/binwidth) + 1) * binwidth
+    lim = (int(xymax / binwidth) + 1) * binwidth
 
     bins = np.arange(-lim, lim + binwidth, binwidth)
     nx, binsx, patchesx = ax_histx.hist(x, bins=bins, zorder=2.5)
@@ -966,7 +1246,7 @@ def scatter_hist(x, y, fig, color=None, colormap='coolwarm', scatter_size=1, kde
         kde_x = KernelDensity(kernel="gaussian", bandwidth=0.75).fit(x)
         log_dens_x = kde_x.score_samples(x_plot)
         scale_to_max = np.max(nx) / np.max(np.exp(log_dens_x))
-        #ax_histx.fill(x_plot[:, 0], np.exp(log_dens_x) * scale_to_max, fc='lightsteelblue', zorder=2)
+        # ax_histx.fill(x_plot[:, 0], np.exp(log_dens_x) * scale_to_max, fc='lightsteelblue', zorder=2)
         ax_histx.fill_between(x_plot[:, 0], 0, np.exp(log_dens_x) * scale_to_max, fc='lightsteelblue', zorder=2)
 
         y = y[:, np.newaxis]
@@ -984,11 +1264,10 @@ def plot_violin(data, positions, density_directions, facecolors, edgecolor, clrs
                 plot_median=True, plot_quartile=False, plot_whiskers=False,
                 median_marker='_', median_marker_size=25,
                 fig=None, ax2=None):
-
     if not fig:
         fig, ax2 = plt.subplots()
 
-    #ax2.set_title('Customized violin plot')
+    # ax2.set_title('Customized violin plot')
     parts = ax2.violinplot(data, showmeans=False, showmedians=False, showextrema=False, half_violin=True, widths=widths,
                            positions=positions, density_direction=density_directions, points=100, bw_method=bw_method)
 
@@ -1026,18 +1305,8 @@ def plot_violin(data, positions, density_directions, facecolors, edgecolor, clrs
     return fig, ax2
 
 
-def plot_arrays_on_one_axis(x, ys):
-    fig, ax = plt.subplots()
-
-    for y in ys:
-        ax.plot(x, y)
-
-    return fig, ax
-
-
 def plot_arrays_on_two_subplots(x1, y1s, x2, y2s, y12s=None, y22s=None, rows_or_columns='rows', sharex=False,
                                 sharey=False, smooth=False):
-
     if rows_or_columns == 'rows':
         if sharex:
             fig, (ax1, ax2) = plt.subplots(nrows=2, sharex=True)
@@ -1084,7 +1353,6 @@ def plot_dist_errorbars(dficts, xparameter='index', yparameter='z'):
     fig, ax = plt.subplots(figsize=(7.25, 4.25))
 
     for name, df in dficts.items():
-
         # plot
         """ax1.scatter(dfg_bid.id, dfg_bid.z_corr, s=5, label=_id)
 
@@ -1094,7 +1362,6 @@ def plot_dist_errorbars(dficts, xparameter='index', yparameter='z'):
         ax2.scatter(_id, dfg_bid.z_corr.mean(), s=5)"""
         pass
 
-
     return fig, ax
 
 
@@ -1102,7 +1369,6 @@ def plot_dist_errorbars(dficts, xparameter='index', yparameter='z'):
 
 
 def plot_multi_optimal_cm_via_percent_change_diff(df, split_column='index', true_percent=False, smooth_plots=False):
-
     x = df.cm_threshold.to_numpy()
     y_sigma = df.rmse_z.to_numpy()
 
@@ -1137,7 +1403,6 @@ def plot_multi_optimal_cm_via_percent_change_diff(df, split_column='index', true
 
 
 def plot_single_optimal_cm_via_percent_change_diff(df, true_percent=False, smooth_plots=False):
-
     x = df.cm_threshold.to_numpy()
     y_sigma = df.rmse_z.to_numpy()
 
@@ -1172,7 +1437,6 @@ def plot_single_optimal_cm_via_percent_change_diff(df, true_percent=False, smoot
 
 
 def plot_normalized_sigma_by_percent(df, smooth_plots=False):
-
     x = df.cm_threshold.to_numpy()
     y_sigma = df.rmse_z.to_numpy()
     y_true = df.true_percent_meas.to_numpy()
@@ -1195,7 +1459,6 @@ def plot_normalized_sigma_by_percent(df, smooth_plots=False):
 
 
 def plot_3d_scatter_and_plane(df, z_param, p_xyz, fit_plane_params, x_param='x', y_param='y'):
-
     # get dataframe points
     x = df[x_param].to_numpy()
     y = df[y_param].to_numpy()
@@ -1232,9 +1495,9 @@ def plot_3d_scatter_and_plane(df, z_param, p_xyz, fit_plane_params, x_param='x',
 
     plt.suptitle(r"$0 = n_x x + n_y y + n_z z - d$" + "= {}x + {}y + {}z - {} \n"
                                                       "(x, y: pixels; z: microns)".format(np.round(normal[0], 3),
-                                                                                        np.round(normal[1], 3),
-                                                                                        np.round(normal[2], 3),
-                                                                                        np.round(d, 3)),
+                                                                                          np.round(normal[1], 3),
+                                                                                          np.round(normal[2], 3),
+                                                                                          np.round(d, 3)),
                  y=0.875)
     plt.subplots_adjust(hspace=-0.1, wspace=0.15)
 
@@ -1242,7 +1505,6 @@ def plot_3d_scatter_and_plane(df, z_param, p_xyz, fit_plane_params, x_param='x',
 
 
 def plot_theoretical_gaussian_diameter(z_range, theoretical_diameter_params_path, zf_at_zero, mag_eff):
-
     # prepare diameter function
     diameter_params = pd.read_excel(theoretical_diameter_params_path, index_col=0)
 
@@ -1269,7 +1531,7 @@ def plot_theoretical_gaussian_diameter(z_range, theoretical_diameter_params_path
     return fig, ax
 
 
-def plot_intrinsic_aberrations(dict_intrinsic_aberrations, cubic=True, quartic=True, plot_type='scatter'):
+def plot_intrinsic_aberrations(dict_intrinsic_aberrations, cubic=True, quartic=True, plot_type='scatter', alpha=0.0625):
     zs = dict_intrinsic_aberrations['dfai'].zs
     cms = dict_intrinsic_aberrations['dfai'].cms
     zfit = dict_intrinsic_aberrations['zfit']
@@ -1277,9 +1539,9 @@ def plot_intrinsic_aberrations(dict_intrinsic_aberrations, cubic=True, quartic=T
     fig, ax = plt.subplots()
 
     if plot_type == 'scatter':
-        ax.scatter(zs, cms, s=1, alpha=0.0625, label='data')
+        ax.scatter(zs, cms, s=1, alpha=alpha, label='data')
     elif plot_type == 'errorbar':
-        ax.scatter(zs, cms, s=1, alpha=0.0625, label='data')
+        ax.scatter(zs, cms, s=1, alpha=alpha, label='data')
 
     if cubic:
         cmfit_cubic = dict_intrinsic_aberrations['cmfit_cubic']
@@ -1288,9 +1550,6 @@ def plot_intrinsic_aberrations(dict_intrinsic_aberrations, cubic=True, quartic=T
     if quartic:
         cmfit_quartic = dict_intrinsic_aberrations['cmfit_quartic']
         ax.plot(zfit, cmfit_quartic, color='black', linewidth=0.5, alpha=0.75, linestyle='--', label='quartic')
-
-    ax.grid(alpha=0.125)
-    ax.set_ylim([-0.15, 0.15])
 
     return fig, ax
 
@@ -1311,16 +1570,69 @@ def plot_calib_stack_self_similarity(df, min_percent_layers=0.75):
 
 
 def plot_particle_to_particle_similarity(df, min_particles_per_frame=10):
-
     dfpp = modify.groupby_stats(df, group_by='frame', drop_columns=['image', 'template'])
     dfpp = dfpp[dfpp['z_counts'] > min_particles_per_frame]
     dfpp = dfpp.sort_values('z')
 
     fig, ax = plt.subplots()
-    ax.errorbar(dfpp.z, dfpp.cm, yerr=dfpp.cm_std, fmt='o', ms=1, elinewidth=0.5, capsize=2)
-    ax.plot(dfpp.z, dfpp.cm, color='gray', alpha=0.5)
+    ax.errorbar(dfpp.z, dfpp.cm, yerr=dfpp.cm_std, fmt='d', ms=3, color='black',
+                capsize=2, ecolor='silver', elinewidth=1, errorevery=5)
 
     return fig, ax
+
+
+def plot_local_z_r_displacement(dfm, dz_col, dr_cols, bin_r, bin_r_lbls,
+                                microns_per_pixel, units_pixels=False,
+                                clr_map=None, z_orders=None,
+                                show_plots=True, save_plots=False, save_id=None, path_results=None):
+    # setup plot
+    if clr_map is None:
+        clr_map = cm.plasma(np.linspace(0.95, 0.15, len(bin_r)))
+    if z_orders is None:
+        z_orders = [3.1, 3.2, 3.3, 3.4, 3.3, 3.2, 3.2, 3.1, 3.1, 3.1, 3.1]
+
+    # plot each radial displacement column
+    for r_disp_col in dr_cols:
+
+        # setup
+        fig, (ax1, ax2) = plt.subplots(nrows=2, sharex=True,
+                                       figsize=(size_x_inches * 1.2, size_y_inches * 1.05),
+                                       gridspec_kw={'height_ratios': [1, 1]})
+
+        for br, br_lbl, clr, zo in zip(bin_r, bin_r_lbls, clr_map, z_orders):
+            dfbr = dfm[dfm['bin_ll'] == br]
+
+            if len(dfbr) == 0:
+                continue
+
+            # plot variables
+            arr_x = dfbr.t.to_numpy()
+            arr_z = dfbr[dz_col].to_numpy()
+            arr_r = dfbr[r_disp_col].to_numpy()
+
+            if units_pixels is False:
+                arr_r = arr_r * microns_per_pixel
+                ax2.set_ylabel(r'$\Delta r \: (\mu m)$')
+            else:
+                ax2.set_ylabel(r'$\Delta r \: (pix.)$')
+
+            ax1.plot(arr_x, arr_z, 'o', ms=1, color=clr, zorder=zo, label=br_lbl)
+            ax2.plot(arr_x, arr_r, 'o', ms=1, lw=0.75, color=clr, zorder=zo)
+
+        ax1.set_ylabel(r'$\Delta z^{\delta} \: (\mu m)$')
+        ax1.legend(loc='upper left', bbox_to_anchor=(1, 1.05), ncol=1,
+                   markerscale=2, title=r'$r_{bin} \: (\mu m)$')
+        ax2.set_xlabel(r'$t \: (s)$')
+
+        plt.tight_layout()
+        if save_plots:
+            plt.savefig(path_results +
+                        '/2b-bin-frame-{}_disc-id{}_num-bins={}_plasma.png'.format(r_disp_col,
+                                                                                   save_id,
+                                                                                   len(bin_r)))
+        if show_plots:
+            plt.show()
+        plt.close()
 
 
 # ---------------------------------   HELPER FUNCTIONS   -----------------------------------------------------
@@ -1341,6 +1653,40 @@ def set_axis_style(ax, labels):
     ax.set_xticks(ticks=list(np.arange(1, len(labels) + 1)), labels=labels)
     ax.set_xlim(0.25, len(labels) + 0.75)
     ax.set_xlabel('Sample name')
+
+
+def set_3d_axes_equal(ax, z_axis_scale):
+    """
+    Reference: https://stackoverflow.com/questions/13685386/matplotlib-equal-unit-length-with-equal-aspect-ratio-z-axis-is-not-equal-to
+
+    Make axes of 3D plot have equal scale so that spheres appear as spheres,
+    cubes as cubes, etc..  This is one possible solution to Matplotlib's
+    ax.set_aspect('equal') and ax.axis('equal') not working for 3D.
+
+    Input
+      ax: a matplotlib axis, e.g., as output from plt.gca().
+    """
+
+    x_limits = ax.get_xlim3d()
+    y_limits = ax.get_ylim3d()
+    z_limits = ax.get_zlim3d()
+
+    x_range = abs(x_limits[1] - x_limits[0])
+    x_middle = np.mean(x_limits)
+    y_range = abs(y_limits[1] - y_limits[0])
+    y_middle = np.mean(y_limits)
+    z_range = abs(z_limits[1] - z_limits[0])
+    z_middle = np.mean(z_limits)
+
+    # The plot bounding box is a sphere in the sense of the infinity
+    # norm, hence I call half the max range the plot radius.
+    plot_radius = 0.5 * max([x_range, y_range, z_range])
+
+    ax.set_xlim3d([x_middle - plot_radius, x_middle + plot_radius])
+    ax.set_ylim3d([y_middle - plot_radius, y_middle + plot_radius])
+
+    if z_axis_scale > 0:
+        ax.set_zlim3d([z_middle - plot_radius * z_axis_scale, z_middle + plot_radius * z_axis_scale])
 
 
 def lighten_color(color, amount=0.5):

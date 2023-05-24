@@ -8,10 +8,14 @@ import pandas as pd
 import numpy as np
 from utils.functions import calculate_precision
 
+
 # scripts
 
-def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=None, round_to_decimal=5,
-                     df_ground_truth=None, dropna=True, error_column=None):
+def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5,
+                     z_range=None, round_to_decimal=4, df_ground_truth=None,
+                     dropna=True, dropna_cols='z',
+                     error_column=None,
+                     include_xy=False, xy_cols=None):
     """
     Creates a new dataframe and calculates the RMSE-z for a specified: number of bins [integer] OR values in bins [list].
 
@@ -20,16 +24,23 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
     df: a dataframe containing at least: z and z_true.
     bins [integer, list]: integer = sort into bins (#) of equi-spaced buckets; list = sort into bins defined by list.
     min_cm: [0, 1]
-    drop: None == keep all of the original columns; ['all', 'most'] == drop all the unnecessary columns for a majority
-    of plots.
 
     Returns
     -------
     dfrmse: dataframe with added columns: "rmse_z" and "num_meas".
     """
 
+    # Error Statements
+    if include_xy is True and xy_cols is None:
+        raise ValueError("Must specify xy_cols = ['x', 'y'].")
+
+    # resolve ground truth binning error
+    if df_ground_truth is not None and isinstance(bins, (int, float)):
+        bins = np.round(np.linspace(df[column_to_bin].min(), df[column_to_bin].max(), bins + 1), round_to_decimal)
+        print("OVERRIDING BINS BECAUSE GROUND TRUTH REQUIRES BIN BY LIST FOR BIN-MATCHING.")
+
     # copy so we don't change the original data
-    dfc = df
+    dfc = df.copy()  # I don't think this is necessary
 
     # rename column if mis-named
     if 'true_z' in dfc.columns:
@@ -40,13 +51,15 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
         dfc = dfc[(dfc['z_true'] > z_range[0]) & (dfc['z_true'] < z_range[1])]
 
     # if c_m is below minimum c_m, change 'z' to NaN:
-    dfc['z'] = np.where((dfc['cm'] < min_cm), np.nan, dfc['z'])
+    dfc.loc[dfc['cm'] < min_cm, 'z'] = np.nan  # DEPRECATED method: dfc['z'] = np.where((dfc['cm'] < min_cm), np.nan, dfc['z'])
 
     # returns an identical dataframe but adds a column named "bin"
     if isinstance(bins, (int, float)):
         dfc = bin_by_column(dfc, column_to_bin=column_to_bin, number_of_bins=bins, round_to_decimal=round_to_decimal)
     elif isinstance(bins, (list, tuple, np.ndarray)):
         dfc = bin_by_list(dfc, column_to_bin=column_to_bin, bins=bins, round_to_decimal=round_to_decimal)
+    else:
+        raise ValueError("'bins' for dataframe not understood. Should be type: int, float, list, tuple, ndarray.")
 
     # count the percent not-NaNs in 'z' due to this particular binning
     dfp = dfc.groupby('bin').count()
@@ -56,31 +69,45 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
 
     # drop NaNs in full dataframe, dfc, so they aren't included in the rmse
     if dropna:
-        dfc = dfc.dropna()
+        if not isinstance(dropna_cols, (list, np.ndarray)):
+            dropna_cols = [dropna_cols]
+        dfc = dfc.dropna(subset=dropna_cols)
 
-    # calculate the squared error for each measurement
+    # calculate the error for each measurement
     if error_column is not None:
         dfc['error'] = dfc[error_column]
     elif 'error' in dfc.columns:
         pass
     else:
-        dfc['error'] = dfc['z_true'] - dfc['z']
+        dfc['error'] = dfc['z'] - dfc['z_true']
+
+    # calculate the squared error
     dfc['sqerr'] = dfc['error'] ** 2
+
+    if include_xy:
+        dfc['err_x'] = dfc[xy_cols[0]] - dfc['x_true']
+        dfc['err_y'] = dfc[xy_cols[1]] - dfc['y_true']
+        dfc['sqerrx'] = dfc['err_x'] ** 2
+        dfc['sqerry'] = dfc['err_y'] ** 2
 
     # group by z_true and calculate: mean, sum of square error, and number of measurements
     dfmean = dfc.groupby(by='bin').mean()
-    dfsum = dfc.groupby(by='bin').sum().sqerr.rename('err_sum')
+
+    if include_xy:
+        dfsum = dfc.groupby(by='bin').sum()  # .sqerr.rename('err_sum')
+        dfsum = dfsum.rename(columns={'sqerr': 'err_sum', 'sqerrx': 'errx_sum', 'sqerry': 'erry_sum'})
+        dfsum = dfsum[['err_sum', 'errx_sum', 'erry_sum']]
+    else:
+        dfsum = dfc.groupby(by='bin').sum().sqerr.rename('err_sum')
 
     # concatenate mean dataframe with: sum of square error and number of measurements
     # add a column for the true number of particles (if known)
     if df_ground_truth is not None:
 
-        # get bin values
-        bin_list = dfc.bin.unique()
-
         # define extents of ground truth z-range to match test collection
-        df_ground_truth = df_ground_truth[(df_ground_truth['z'] > z_range[0]) &
-                                          (df_ground_truth['z'] < z_range[1])]
+        if z_range:
+            df_ground_truth = df_ground_truth[(df_ground_truth['z'] > z_range[0]) &
+                                              (df_ground_truth['z'] < z_range[1])]
 
         # adjust column_to_bin to match ground truth column names
         if column_to_bin == 'z_true':
@@ -90,9 +117,23 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
         elif column_to_bin == 'y_true':
             column_to_bin = 'y'
 
+        # old method: bin dataframe uses list of bin values
+        # bin_list = dfc.bin.unique()
+        # df_ground_truth = bin_by_list(df_ground_truth, column_to_bin=column_to_bin, bins=bin_list, round_to_decimal=round_to_decimal)
+
         # bin dataframe uses list of bin values
-        df_ground_truth = bin_by_list(df_ground_truth, column_to_bin=column_to_bin, bins=bin_list, round_to_decimal=round_to_decimal)
-        df_true_num_particles_per_bin = df_ground_truth.groupby('bin').count()
+        if isinstance(bins, (int, float)):
+            dfb_ground_truth = bin_by_column(df_ground_truth, column_to_bin=column_to_bin, number_of_bins=bins,
+                                             round_to_decimal=round_to_decimal)
+        elif isinstance(bins, (list, tuple, np.ndarray)):
+            dfb_ground_truth = bin_by_list(df_ground_truth, column_to_bin=column_to_bin, bins=bins,
+                                           round_to_decimal=round_to_decimal)
+        else:
+            raise ValueError("'bins' for ground truth dataframe not understood.")
+
+        # count number of particles per bin
+        df_true_num_particles_per_bin = dfb_ground_truth.groupby('bin').count()
+        df_true_num_particles_per_bin['filename'] = df_true_num_particles_per_bin['z']
         df_true_num_particles_per_bin = df_true_num_particles_per_bin.rename(columns={'filename': 'true_num_particles'})
 
         dfp = pd.concat([dfp, df_true_num_particles_per_bin[['true_num_particles']]], axis=1, join='inner', sort=False)
@@ -105,10 +146,20 @@ def bin_local_rmse_z(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=No
                            sort=False)
 
     # calculate the root mean squared error: RMSE = sqrt(sum(sq. error)/sum(num measurements))
-    dfrmse['rmse_z'] = np.sqrt(dfrmse.err_sum.divide(dfrmse.num_meas))
+    if include_xy:
+        dfrmse['rmse_z'] = np.sqrt(dfrmse.err_sum.divide(dfrmse.num_meas))
+        dfrmse['rmse_x'] = np.sqrt(dfrmse.errx_sum.divide(dfrmse.num_meas))
+        dfrmse['rmse_y'] = np.sqrt(dfrmse.erry_sum.divide(dfrmse.num_meas))
+    else:
+        dfrmse['rmse_z'] = np.sqrt(dfrmse.err_sum.divide(dfrmse.num_meas))
 
     # lastly, drop any uneccessary columns
-    dfrmse = dfrmse.drop(['error', 'sqerr', 'err_sum'], axis=1)
+    if include_xy:
+        dfrmse = dfrmse.drop(['error', 'err_x', 'err_y',
+                              'sqerr', 'sqerrx', 'sqerry',
+                              'err_sum', 'errx_sum', 'erry_sum'], axis=1)
+    else:
+        dfrmse = dfrmse.drop(['error', 'sqerr', 'err_sum'], axis=1)
 
     return dfrmse
 
@@ -194,6 +245,8 @@ def bin_local(df, column_to_bin='z_true', bins=20, min_cm=0.5, z_range=None, rou
 
 def bin_generic(df, column_to_bin, column_to_count, bins, round_to_decimal, return_groupby):
     """
+    dfm, dfstd = bin.bin_generic(df, column_to_bin, column_to_count, bins, round_to_decimal, return_groupby)
+
     Bin dataframe 'df' into 'bins' # of bins on column 'column_to_bin' after rounding to 'round_to_decimal' places.
 
     Return: (1) mean, (2) standard deviation, (3) and counts for a single column
@@ -299,7 +352,6 @@ def bin_generic_2d(df, columns_to_bin, column_to_count, bins, round_to_decimals,
 
         # for each bin (z)
         for bntl in df.bin_tl.unique():
-
             # get the dataframe for this bin only
             dfbtl = df[df['bin_tl'] == bntl]
             bins_tl_ll = dfbtl.bin_ll.unique()
@@ -313,20 +365,19 @@ def bin_generic_2d(df, columns_to_bin, column_to_count, bins, round_to_decimals,
                                          return_groupby=return_groupby,
                                          )
 
-            # filter dfstd
-            dfmll = dfmll[dfmll['count_' + column_to_count] > min_num_bin]
+            # filter dfm
+            dfmll = dfmll.dropna(subset=columns_to_bin)
+            dfmll = dfmll[dfmll['count_' + column_to_count] >= min_num_bin]
             dfms.append(dfmll)
 
             # re-organize dfstd
             dfstdll['bin_tl'] = bntl
             dfstdll['bin_ll'] = dfstdll['bin']
-            dfstdll = dfstdll.dropna()
+            dfstdll = dfstdll.dropna(subset=columns_to_bin)
             dfstdll = dfstdll[dfstdll['bin'].isin(dfmll.bin.unique())]
             dfstds.append(dfstdll)
 
         df_means = pd.concat(dfms, ignore_index=True)
-        df_means = df_means.dropna()
-
         df_stds = pd.concat(dfstds, ignore_index=True)
 
         df_means = df_means.drop(columns=['bin'])
@@ -345,6 +396,9 @@ def bin_by_column(df, column_to_bin='z_true', number_of_bins=25, round_to_decima
         df = df.rename(columns={"true_z": "z_true"})
 
     """
+
+    # turn off pandas warning to try using .loc[row_indexer, col_indexer] = value
+    pd.options.mode.chained_assignment = None  # default='warn'
 
     # round the column_to_bin to integer for easier mapping
     temp_column = 'temp_' + column_to_bin
@@ -427,3 +481,28 @@ def map_lists_a_to_b(a, b):
         mapped_vals.append(b[np.argmin(dist)])
 
     return mapped_vals
+
+
+def sample_array_at_intervals(arr_to_sample, bins, bin_width, nearest_sample_to_bin=True):
+    # ensure numpy array
+    if isinstance(arr_to_sample, list):
+        arr_to_sample = np.array(arr_to_sample)
+
+    # get unique values
+    arr_to_sample = np.unique(arr_to_sample)
+
+    arr_sampled_at_bins = []
+    for i in range(len(bins) - 1):
+
+        arr_values_at_bin = arr_to_sample[(arr_to_sample > bins[i] - bin_width) * (arr_to_sample < bins[i] + bin_width)]
+
+        if len(arr_values_at_bin) == 0:
+            continue
+        elif nearest_sample_to_bin is True:
+            arr_value = arr_values_at_bin[np.argmin(np.abs(arr_values_at_bin - bins[i]))]
+        else:
+            arr_value = arr_values_at_bin[0]
+
+        arr_sampled_at_bins.append(arr_value)
+
+    return arr_sampled_at_bins

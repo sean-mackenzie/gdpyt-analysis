@@ -27,6 +27,8 @@ Plotting:
 """
 
 # Note on adjusting subplots spacing
+import os
+
 """
 Using tight_layout():
     plt.tight_layout(pad: float (fraction of font size), h_pad, w_pad: float (defaults to pad_inches)))
@@ -54,6 +56,7 @@ from itertools import groupby
 from sklearn.neighbors import NearestNeighbors
 
 import logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 
@@ -61,7 +64,6 @@ import analyze
 from utils import io, details, fit, bin, plotting, modify, boundary, functions
 from utils.functions import calculate_z_of_3d_plane
 import filter
-from tracking import plotting as trackplot
 
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontProperties
@@ -76,13 +78,14 @@ fig, ax = plt.subplots()
 size_x_inches, size_y_inches = fig.get_size_inches()
 plt.close(fig)
 
+
 # scripts
 
 
-def inspect_calibration_surface(df, param_zf, microns_per_pixel):
+def inspect_calibration_surface(df, param_zf, microns_per_pixel, img_xc, img_yc):
     """
     To run:
-    dict_fit_plane, fig_xy, fig_xyz, fig_plane = correct.inspect_calibration_surface(df, param_zf, microns_per_pixel)
+    dict_fit_plane, fig_xy, fig_xyz, fig_plane = correct.inspect_calibration_surface(df, param_zf, microns_per_pixel, img_xc, img_yc)
 
     :param df:
     :param param_zf:
@@ -94,7 +97,7 @@ def inspect_calibration_surface(df, param_zf, microns_per_pixel):
         raise ValueError('Run function merge_calib_pid_defocus_and_correction_coords(path_calib_coords) to merge x-y.')
 
     # 1. Plot initial distribution in x and y
-    dict_fit_plane = fit_in_focus_plane(df, param_zf, microns_per_pixel)
+    dict_fit_plane = fit_in_focus_plane(df, param_zf, microns_per_pixel, img_xc, img_yc)
 
     fig_xy, ax = plotting.scatter_z_by_xy(df=df, z_params=param_zf)
 
@@ -105,7 +108,8 @@ def inspect_calibration_surface(df, param_zf, microns_per_pixel):
     return dict_fit_plane, fig_xy, fig_xyz, fig_plane
 
 
-def fit_in_focus_plane(df, param_zf, microns_per_pixel):
+def fit_in_focus_plane(df, param_zf, microns_per_pixel, img_xc, img_yc):
+    """ dict_fit_plane = correct.fit_in_focus_plane(df, param_zf, microns_per_pixel, img_xc, img_yc) """
 
     if not len(df) == len(df.id.unique()):
         df = df.groupby('id').mean().reset_index()
@@ -134,7 +138,7 @@ def fit_in_focus_plane(df, param_zf, microns_per_pixel):
     tilt_y = np.rad2deg(np.arctan((pz_microns[1, 0] - pz_microns[0, 0]) / (py_microns[1, 0] - py_microns[0, 0])))
 
     # calculate zf at image center: (x = 256, y = 256)
-    zf_mean_image_center = functions.calculate_z_of_3d_plane(256, 256, popt=popt_pixels)
+    zf_mean_image_center = functions.calculate_z_of_3d_plane(img_xc, img_yc, popt=popt_pixels)
 
     dict_fit_plane = {'z_f': param_zf,
                       'z_f_fit_plane_image_center': zf_mean_image_center,
@@ -143,7 +147,7 @@ def fit_in_focus_plane(df, param_zf, microns_per_pixel):
                       'rmse': rmse, 'r_squared': r_squared,
                       'tilt_x_degrees': tilt_x, 'tilt_y_degrees': tilt_y,
                       'num_locations': num_locations,
-                      'num_density_pixels': num_density, 'num_density_microns': num_density / microns_per_pixel**2,
+                      'num_density_pixels': num_density, 'num_density_microns': num_density / microns_per_pixel ** 2,
                       'x_span_pixels': x_span, 'x_span_microns': x_span * microns_per_pixel,
                       'y_span_pixels': y_span, 'y_span_microns': y_span * microns_per_pixel,
                       'popt_pixels': popt_pixels,
@@ -154,8 +158,235 @@ def fit_in_focus_plane(df, param_zf, microns_per_pixel):
     return dict_fit_plane
 
 
-def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
+def fit_plane_correct_plane_fit_spline(dfcal, param_zf, microns_per_pixel, img_xc, img_yc, kx, ky, path_figs=None):
+    """
+    dict_fit_plane, dict_fit_plane_bspl_corrected, dfcal_field_curvature_and_tilt_corrected, bispl =
+        correct.fit_plane_correct_plane_fit_spline(dfcal, param_zf, microns_per_pixel, img_xc, img_yc, kx, ky, path_figs=None)
+    """
 
+    # make dataset-specific folders to save figs/results
+    if path_figs is not None:
+        path_figs = join(path_figs, 'calibration_surface_{}'.format(param_zf))
+        if not os.path.exists(path_figs):
+            os.makedirs(path_figs)
+
+    # copy original dataframe
+    dfcal_original = dfcal.copy()
+
+    # ----- PART A. DETERMINING THE FIELD CURVATURE
+
+    # step 1. fit plane to raw coordinates
+    dict_fit_plane, fig_xy, fig_xyz, fig_plane = inspect_calibration_surface(dfcal,
+                                                                             param_zf,
+                                                                             microns_per_pixel,
+                                                                             img_xc,
+                                                                             img_yc)
+
+    if path_figs:
+        fig_xy.savefig(path_figs + '/raw_{}_scatter_xy.png'.format(param_zf))
+        fig_xyz.savefig(path_figs + '/raw_{}_scatter_xyz.png'.format(param_zf))
+        fig_plane.savefig(path_figs + '/raw_{}_fit-3d-plane.png'.format(param_zf))
+
+        plt.close(fig_xy)
+        plt.close(fig_xyz)
+        plt.close(fig_plane)
+    else:
+        plt.close('all')
+
+    # step 2. correct coordinates using fitted plane
+    dfcal_tilt_corrected = correct_z_by_plane_tilt(dfcal,
+                                                   dftest=None,
+                                                   param_zf='none',
+                                                   param_z=param_zf,
+                                                   param_z_true='none',
+                                                   popt_calib=None,
+                                                   params_correct=None,
+                                                   dict_fit_plane=dict_fit_plane,
+                                                   )
+
+    # step 2b. plot tilt-corrected z_f
+    param_zf_corr = 'z_corr'
+    d_, fig_xy, fig_xyz, fig_plane = inspect_calibration_surface(dfcal_tilt_corrected,
+                                                                 param_zf=param_zf_corr,
+                                                                 microns_per_pixel=microns_per_pixel,
+                                                                 img_xc=img_xc,
+                                                                 img_yc=img_yc,
+                                                                 )
+
+    if path_figs:
+        fig_xy.savefig(path_figs + '/fit-plane-to-raw-then-corrected_{}_scatter_xy.png'.format(param_zf_corr))
+        fig_xyz.savefig(path_figs + '/fit-plane-to-raw-then-corrected_{}_scatter_xyz.png'.format(param_zf_corr))
+        fig_plane.savefig(path_figs + '/fit-plane-to-raw-then-corrected_{}_fit-3d-plane.png'.format(param_zf_corr))
+
+        plt.close(fig_xy)
+        plt.close(fig_xyz)
+        plt.close(fig_plane)
+    else:
+        plt.close('all')
+
+    # ---
+
+    # step 3. fit bivariate spline to tilt-corrected points
+    bispl, rmse = fit.fit_3d_spline(x=dfcal_tilt_corrected.x,
+                                    y=dfcal_tilt_corrected.y,
+                                    z=dfcal_tilt_corrected['z_corr'],
+                                    kx=kx,
+                                    ky=ky)
+
+    dict_fit_plane.update(
+        {'bispl_rmse': rmse,
+         'bispl_kx': kx,
+         'bispl_ky': ky,
+         }
+    )
+
+    dfict_fit_plane = pd.DataFrame.from_dict(dict_fit_plane, orient='index', columns=['value'])
+    if path_figs is not None:
+        dfict_fit_plane.to_excel(path_figs + '/raw-calib-coords_field-curvature_from-tilt-corrected-fit-spline.xlsx')
+
+    fig, ax = plotting.scatter_3d_and_spline(dfcal_tilt_corrected.x,
+                                             dfcal_tilt_corrected.y,
+                                             dfcal_tilt_corrected['z_corr'],
+                                             bispl,
+                                             cmap='RdBu',
+                                             grid_resolution=30,
+                                             view='multi')
+    ax.set_xlabel('x (pixels)')
+    ax.set_ylabel('y (pixels)')
+    ax.set_zlabel(r'$z_{f} \: (\mu m)$')
+    plt.suptitle('fit RMSE = {}'.format(np.round(rmse, 3)))
+    if path_figs:
+        plt.savefig(path_figs + '/calibration_fit-spline_kx{}_ky{}_after-tilt-correction.png'.format(kx, ky))
+    plt.close()
+
+    # ----- PART B. GOING BACK TO THE ORIGINAL COORDINATES
+
+    # step 4. correct original coordinates using the tilt-corrected bivariate spline (field curvature).
+    dfcal_bspl_corrected = correct_z_by_spline(dfcal_original, bispl, param_z=param_zf)
+    param_zf_corr = 'z_corr'
+
+    # step 5. fit plane to field-curvature-corrected coordinates
+    dict_fit_plane_bspl_corrected, fig_xy, fig_xyz, fig_plane = inspect_calibration_surface(dfcal_bspl_corrected,
+                                                                                            param_zf=param_zf_corr,
+                                                                                            microns_per_pixel=microns_per_pixel,
+                                                                                            img_xc=img_xc,
+                                                                                            img_yc=img_yc,
+                                                                                            )
+
+    if path_figs:
+        fig_xy.savefig(path_figs + '/field-curvature-corrected_{}_scatter_xy.png'.format(param_zf_corr))
+        fig_xyz.savefig(path_figs + '/field-curvature-corrected_{}_scatter_xyz.png'.format(param_zf_corr))
+        fig_plane.savefig(path_figs + '/field-curvature-corrected_{}_fit-3d-plane.png'.format(param_zf_corr))
+
+        plt.close(fig_xy)
+        plt.close(fig_xyz)
+        plt.close(fig_plane)
+    else:
+        plt.close('all')
+
+    # export results
+    dfict_fit_plane_bspl_corrected = pd.DataFrame.from_dict(dict_fit_plane_bspl_corrected, orient='index',
+                                                            columns=['value'])
+    if path_figs is not None:
+        dfict_fit_plane_bspl_corrected.to_excel(path_figs + '/calib-coords_tilt_from-field-curvature-corrected.xlsx')
+
+    # step 2. correct coordinates using fitted plane
+    dfcal_field_curvature_and_tilt_corrected = correct_z_by_plane_tilt(dfcal_bspl_corrected,
+                                                                       dftest=None,
+                                                                       param_zf='none',
+                                                                       param_z=param_zf_corr,
+                                                                       param_z_true='none',
+                                                                       popt_calib=None,
+                                                                       params_correct=None,
+                                                                       dict_fit_plane=dict_fit_plane_bspl_corrected,
+                                                                       )
+
+    # export corrected dataframe
+    if path_figs is not None:
+        dfcal_field_curvature_and_tilt_corrected.to_excel(path_figs +
+                                                          '/calib_spct_pid_defocus_stats_field-curvature-and-tilt-corrected_xy.xlsx',
+                                                          index=False)
+
+    # plot the final coordinates after all corrections
+    d_, fig_xy, fig_xyz, fig_plane = inspect_calibration_surface(dfcal_field_curvature_and_tilt_corrected,
+                                                                 param_zf=param_zf_corr,
+                                                                 microns_per_pixel=microns_per_pixel,
+                                                                 img_xc=img_xc,
+                                                                 img_yc=img_yc,
+                                                                 )
+
+    if path_figs:
+        fig_xy.savefig(path_figs + '/post-all-corrections_{}_scatter_xy.png'.format(param_zf_corr))
+        fig_xyz.savefig(path_figs + '/post-all-corrections_{}_scatter_xyz.png'.format(param_zf_corr))
+        fig_plane.savefig(path_figs + '/post-all-corrections_{}_fit-3d-plane.png'.format(param_zf_corr))
+
+        plt.close(fig_xy)
+        plt.close(fig_xyz)
+        plt.close(fig_plane)
+    else:
+        plt.close('all')
+
+    return dict_fit_plane, dict_fit_plane_bspl_corrected, dfcal_field_curvature_and_tilt_corrected, bispl
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+def correct_test_by_calibration_fitting(dft, param_z, param_z_true, dfcal, param_zf,
+                                        microns_per_pixel, img_xc, img_yc, kx, ky,
+                                        path_figs=None):
+    """
+    dft_field_curvature_and_tilt_corrected = correct.correct_test_by_calibration_fitting(dft, param_z,
+                                                                                        param_z_true, dfcal, param_zf,
+                                                                                        microns_per_pixel,
+                                                                                        img_xc, img_yc,
+                                                                                        kx, ky,
+                                                                                        path_figs=None)
+    :param dft:
+    :param param_z:
+    :param param_z_true:
+    :param dfcal:
+    :param param_zf:
+    :param microns_per_pixel:
+    :param img_xc:
+    :param img_yc:
+    :param kx:
+    :param ky:
+    :param path_figs:
+    :return:
+    """
+
+    dict_fit_plane, dict_fit_plane_bspl_corrected, dfcal_field_curvature_and_tilt_corrected, bispl = \
+        fit_plane_correct_plane_fit_spline(dfcal,
+                                           param_zf,
+                                           microns_per_pixel,
+                                           img_xc,
+                                           img_yc,
+                                           kx,
+                                           ky,
+                                           path_figs=path_figs,
+                                           )
+
+    # step 4. correct original coordinates using the tilt-corrected bivariate spline (field curvature).
+    dft_bspl_corrected = correct_z_by_spline(dft, bispl, param_z=param_z)
+    param_z_corr = 'z_corr'
+
+    # step 2. correct coordinates using fitted plane
+    dft_field_curvature_and_tilt_corrected = correct_z_by_plane_tilt(dfcal=None,
+                                                                     dftest=dft_bspl_corrected,
+                                                                     param_zf='none',
+                                                                     param_z=param_z_corr,
+                                                                     param_z_true=param_z_true,
+                                                                     popt_calib=None,
+                                                                     params_correct=None,
+                                                                     dict_fit_plane=dict_fit_plane_bspl_corrected,
+                                                                     )
+
+    return dft_field_curvature_and_tilt_corrected
+
+
+# ---
+
+def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
     # ------------------------
     # setup: io_dict
     path_calib_coords = io_dict['path_calib_coords']
@@ -264,17 +495,17 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
 
         cficts_orig = cficts.copy()
         cficts_orig, z_f_mean_orig = calc_calib_in_focus_z(cficts_orig,
-                                                            dficts=None,
-                                                            perform_correction=perform_correction,
-                                                            per_particle_correction=per_particle_correction,
-                                                            only_quartiles=include_quartiles,
-                                                            show_z_focus_plot=False,
-                                                            show_particle_plots=False,
-                                                            plot_average_z_per_particle=plot_average_z_per_particle,
-                                                            save_plots=save_plots,
-                                                            save_path=path_figs_all_in_focus_correction,
-                                                            num_particle_plots=1,
-                                                            round_to_decimals=4)
+                                                           dficts=None,
+                                                           perform_correction=perform_correction,
+                                                           per_particle_correction=per_particle_correction,
+                                                           only_quartiles=include_quartiles,
+                                                           show_z_focus_plot=False,
+                                                           show_particle_plots=False,
+                                                           plot_average_z_per_particle=plot_average_z_per_particle,
+                                                           save_plots=save_plots,
+                                                           save_path=path_figs_all_in_focus_correction,
+                                                           num_particle_plots=1,
+                                                           round_to_decimals=4)
 
         cficts_orig_df = cficts_orig[1.0]
         z_f_mean_orig = z_f_mean_orig[1.0]
@@ -282,22 +513,23 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
         # Apply boundary mask to calibration particles
 
         cficts_df = cficts[1.0]
-        boundary_pids, interior_pids = boundary.get_boundary_particles(mask_boundary, cficts_df, return_interior_particles=True)
+        boundary_pids, interior_pids = boundary.get_boundary_particles(mask_boundary, cficts_df,
+                                                                       return_interior_particles=True)
 
         cficts_boundary = cficts.copy()
         cficts_boundary, z_f_mean_boundary = calc_calib_in_focus_z(cficts_boundary,
-                                                                    dficts=None,
-                                                                    only_particle_ids=boundary_pids,
-                                                                    perform_correction=perform_correction,
-                                                                    per_particle_correction=per_particle_correction,
-                                                                    only_quartiles=include_quartiles,
-                                                                    show_z_focus_plot=False,
-                                                                    show_particle_plots=False,
-                                                                    plot_average_z_per_particle=plot_average_z_per_particle,
-                                                                    save_plots=save_plots,
-                                                                    save_path=path_figs_boundary_in_focus_correction,
-                                                                    num_particle_plots=1,
-                                                                    round_to_decimals=4)
+                                                                   dficts=None,
+                                                                   only_particle_ids=boundary_pids,
+                                                                   perform_correction=perform_correction,
+                                                                   per_particle_correction=per_particle_correction,
+                                                                   only_quartiles=include_quartiles,
+                                                                   show_z_focus_plot=False,
+                                                                   show_particle_plots=False,
+                                                                   plot_average_z_per_particle=plot_average_z_per_particle,
+                                                                   save_plots=save_plots,
+                                                                   save_path=path_figs_boundary_in_focus_correction,
+                                                                   num_particle_plots=1,
+                                                                   round_to_decimals=4)
 
         cficts_boundary_df = cficts_boundary[1.0]
         z_f_mean_boundary = z_f_mean_boundary[1.0]
@@ -381,9 +613,9 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
                 ax.get_zaxis().set_ticklabels([])
         plt.suptitle(r"$0 = n_x x + n_y y + n_z z - d$" + "= {}x + {}y + {}z - {} \n"
                                                           "(x, y: pixels; z: microns)".format(np.round(normal[0], 3),
-                                                                                            np.round(normal[1], 3),
-                                                                                            np.round(normal[2], 3),
-                                                                                            np.round(d, 3)),
+                                                                                              np.round(normal[1], 3),
+                                                                                              np.round(normal[2], 3),
+                                                                                              np.round(d, 3)),
                      y=0.875)
         plt.subplots_adjust(hspace=-0.1, wspace=0.15)
         plt.savefig(join(path_figs_in_focus_fit, 'calib_boundaries_in-focus-z_fit_3d.png'))
@@ -394,7 +626,8 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
         for i, v in zip(np.arange(1, 5), [45, 0, 315, 270]):
             ax = fig.add_subplot(2, 2, i, projection='3d')
             sc = ax.scatter(cficts_orig_df.x, cficts_orig_df.y, cficts_orig_df.z_f_calc, c=cficts_orig_df.z_f_calc, s=1)
-            ax.scatter(cficts_boundary_df.x, cficts_boundary_df.y, cficts_boundary_df.z_f_calc, color='red', s=2, marker='d', alpha=0.5)
+            ax.scatter(cficts_boundary_df.x, cficts_boundary_df.y, cficts_boundary_df.z_f_calc, color='red', s=2,
+                       marker='d', alpha=0.5)
             ax.plot_surface(px, py, pz, alpha=0.4, color='red')
             ax.view_init(5, v)
             ax.patch.set_alpha(0.0)
@@ -413,9 +646,9 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
                 ax.get_zaxis().set_ticklabels([])
         plt.suptitle(r"$0 = n_x x + n_y y + n_z z - d$" + "= {}x + {}y + {}z - {} \n"
                                                           "(x, y: pixels; z: microns)".format(np.round(normal[0], 3),
-                                                                                            np.round(normal[1], 3),
-                                                                                            np.round(normal[2], 3),
-                                                                                            np.round(d, 3)),
+                                                                                              np.round(normal[1], 3),
+                                                                                              np.round(normal[2], 3),
+                                                                                              np.round(d, 3)),
                      y=0.875)
         plt.subplots_adjust(hspace=-0.1, wspace=0.15)
         plt.savefig(join(path_figs_in_focus_fit, 'calib_all_in-focus-z_fit_3d.png'))
@@ -438,8 +671,10 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
         fig = plt.figure(figsize=(6.5, 5))
         for i, v in zip(np.arange(1, 5), [45, 0, 315, 270]):
             ax = fig.add_subplot(2, 2, i, projection='3d')
-            ax.scatter(cficts_boundary_df.x, cficts_boundary_df.y, cficts_boundary_df.z, color='black', s=2, marker='.', label='z')
-            ax.scatter(cficts_boundary_df.x, cficts_boundary_df.y, cficts_boundary_df.z_f_calc, color='cornflowerblue', s=2, label=r'$z_f$')
+            ax.scatter(cficts_boundary_df.x, cficts_boundary_df.y, cficts_boundary_df.z, color='black', s=2, marker='.',
+                       label='z')
+            ax.scatter(cficts_boundary_df.x, cficts_boundary_df.y, cficts_boundary_df.z_f_calc, color='cornflowerblue',
+                       s=2, label=r'$z_f$')
             ax.scatter(dfc.x, dfc.y, dfc[z_corr_tilt_name], color='red', s=4, marker='d', label=r'$z_{tilt corrected}$')
             ax.view_init(5, v)
             ax.patch.set_alpha(0.0)
@@ -505,7 +740,8 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
         for i, v in zip(np.arange(1, 5), [45, 0, 315, 270]):
             ax = fig.add_subplot(2, 2, i, projection='3d')
             ax.scatter(cficts_orig_df.x, cficts_orig_df.y, cficts_orig_df.z, color='black', s=2, marker='.', label='z')
-            ax.scatter(cficts_orig_df.x, cficts_orig_df.y, cficts_orig_df.z_f_calc, color='cornflowerblue', s=2, label=r'$z_f$')
+            ax.scatter(cficts_orig_df.x, cficts_orig_df.y, cficts_orig_df.z_f_calc, color='cornflowerblue', s=2,
+                       label=r'$z_f$')
             ax.scatter(dfc.x, dfc.y, dfc[z_corr_tilt_name], color='red', s=4, marker='d', label=r'$z_{corrected}$')
             ax.view_init(5, v)
             ax.patch.set_alpha(0.0)
@@ -647,6 +883,7 @@ def perform_correction(io_dict, mask_dict, exp_dict, compute_all=False):
 
     return results_dict
 
+
 # ----------------------------------------------------------------------------------------------------------------------
 
 
@@ -694,8 +931,33 @@ def correct_z_by_spline(df, bispl, param_z):
     return df
 
 
+def correct_z_by_spline_relative_to_calib_pid_xy(cx, cy, df, bispl, param_z, param_z_corr, param_z_surface,
+                                                 flip_correction=False):
+    z_relative_zero = bispl.ev(cx, cy)
+    df[param_z_surface] = bispl.ev(df.x, df.y) - z_relative_zero
+    df[param_z_corr] = df[param_z] - df[param_z_surface]
+
+    if flip_correction:
+        df[param_z_corr] = df[param_z] + df[param_z_surface]
+
+    return df
+
+
+def correct_z_by_plane_relative_to_calib_pid_xy(cx, cy, df, dict_fit_plane, param_z, param_z_corr, param_z_surface,
+                                                flip_correction=False):
+    popt = dict_fit_plane['popt_pixels']
+    z_relative_zero = functions.calculate_z_of_3d_plane(cx, cy, popt=popt)
+    df[param_z_surface] = functions.calculate_z_of_3d_plane(df.x, df.y, popt=popt) - z_relative_zero
+    df[param_z_corr] = df[param_z] - df[param_z_surface]
+
+    if flip_correction:
+        df[param_z_corr] = df[param_z] + df[param_z_surface]
+
+    return df
+
+
 def correct_z_by_plane_tilt(dfcal, dftest, param_zf='z_f', param_z='z', param_z_true='z_true',
-                            popt_calib=None, params_correct=None):
+                            popt_calib=None, params_correct=None, dict_fit_plane=None, correct_relative=False):
     """
 
     :param dfcal: calibration dataframe with z_in-focus coordinate.
@@ -705,29 +967,43 @@ def correct_z_by_plane_tilt(dfcal, dftest, param_zf='z_f', param_z='z', param_z_
     :param param_z_true: column in dftest to correct; if None, no column is corrected.
     :param popt_calib: (optional) fitted plane parameters
     :param params_correct: (optional) additional columns to correct using 'z_plane'
+    :param dict_fit_plane: dictionary of fit quantities.
+    :param correct_relative: adjust particle positions by difference to plane
     :return:
     """
 
     # --- prepare inputs
-
-    # dfcal: 1 id == 1 (x, y)
-    if len(dfcal) > len(dfcal.id.unique()):
-        dfcal = dfcal.groupby('id').mean().reset_index()
-
-    # dftest:
-    if dftest is None:
-        dftest = dfcal.copy()
-
     if param_z is None:
         raise ValueError('param_z cannot be None. Use a different function if you just want to calculate z_plane.')
 
-    # fit plane on calibration in-focus (x, y, z units: pixels)
-    if popt_calib is None:
-        points_pixels = np.stack((dfcal.x, dfcal.y, dfcal[param_zf])).T
-        px_pixels, py_pixels, pz_pixels, popt_calib = fit.fit_3d_plane(points_pixels)
+    if param_z_true == 'none':
+        param_z_true = None
+
+    if dfcal is not None:
+        if len(dfcal) > len(dfcal.id.unique()):
+            dfcal = dfcal.groupby('id').mean().reset_index()
+
+        if dftest is None:
+            dftest = dfcal.copy()
+
+    if dict_fit_plane is not None:
+        if isinstance(dict_fit_plane, dict):
+            popt_calib = dict_fit_plane['popt_pixels']
+        elif isinstance(dict_fit_plane, pd.DataFrame):
+            popt_calib = dict_fit_plane.loc['popt_pixels'].values
+        else:
+            raise ValueError("dict_fit_plane dtype is not recognized. Acceptable types are 'dict' or 'pd.DataFrame'.")
+    else:
+        # fit plane on calibration in-focus (x, y, z units: pixels)
+        if popt_calib is None:
+            points_pixels = np.stack((dfcal.x, dfcal.y, dfcal[param_zf])).T
+            px_pixels, py_pixels, pz_pixels, popt_calib = fit.fit_3d_plane(points_pixels)
 
     # calculate z-position on plane
     dftest['z_plane'] = functions.calculate_z_of_3d_plane(dftest.x, dftest.y, popt=popt_calib)
+
+    if correct_relative:
+        dftest['z_plane'] = dftest['z_plane'] - dict_fit_plane['z_f_fit_plane_image_center']
 
     # calculate corrected z-position
     dftest['z_corr'] = dftest[param_z] - dftest['z_plane']
@@ -781,7 +1057,8 @@ def correct_from_mapping(df_to_correct, df_particle_corrections, z_correction_na
     return dft
 
 
-def correct_nonuniform_particle_ids(baseline, coords, threshold=5, dropna=True, save_path=False, save_id=None):
+def correct_nonuniform_particle_ids(baseline, coords, threshold=5, dropna=True, save_path=False, save_id=None,
+                                    shift_baseline_coords=[0, 0]):
     """
     Read 'baseline' and 'coords' dataframes and uniformize 'coords' particle ID's to match baseline's particle ID's.
 
@@ -793,11 +1070,19 @@ def correct_nonuniform_particle_ids(baseline, coords, threshold=5, dropna=True, 
     :param baseline_padding:
     :param coords_padding:
     :param threshold:
+    :param shift_baseline_coords: shift 'baseline' coordinates by (x, y) to match with 'coords'. Note, that +xy will
+    shift the particles downwards and -xy upwards due to their location being in image coordinates.
     :return:
     """
 
     if len(baseline) > len(baseline.id.unique()):
         baseline = baseline.groupby('id').mean().reset_index()
+
+    # shift baseline particles to match SPCT particle locations
+    if shift_baseline_coords[0] != 0:
+        baseline['x'] = baseline['x'] + shift_baseline_coords[0]
+    if shift_baseline_coords[1] != 0:
+        baseline['y'] = baseline['y'] + shift_baseline_coords[1]
 
     # plot before and after particle locations
     fig, [ax1, ax2] = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches * 2, size_y_inches))
@@ -845,7 +1130,13 @@ def correct_nonuniform_particle_ids(baseline, coords, threshold=5, dropna=True, 
 
     # drop NaNs
     if dropna:
+        i_rows = len(coords_orig)
         coords_orig = coords_orig.dropna()
+        f_rows = len(coords_orig)
+        print("Dropped {} rows out of {} ({}%).".format(i_rows - f_rows,
+                                                        i_rows,
+                                                        np.round((1 - f_rows / i_rows) * 100, 1))
+              )
 
     # save figures
     export_orig = coords_orig[['id', 'x', 'y', 'z']]
@@ -891,7 +1182,6 @@ def correct_nonuniform_particle_ids(baseline, coords, threshold=5, dropna=True, 
 
 
 def package_correction_params(correction_type, function, popt, save_path=None, xy_units=None, z_units=None):
-
     a, b, c, d, normal = popt[0], popt[1], popt[2], popt[3], popt[4]
 
     correction_dict = {
@@ -1150,11 +1440,13 @@ def calc_calib_in_focus_z(cficts, dficts=None, only_particle_ids=None,
             # plot x
             ax1.axhline(y=z_f0_mean, color='darkred', linestyle='--', linewidth=1, alpha=0.5, label=r'$z_{f0}$')
             if z_f0_limits:
-                ax1.axhline(y=z_f0_mean + z_f0_limits, color='darkred', linestyle='--', linewidth=0.5, alpha=0.25, label=r'$z_{f0,\: lim}$')
+                ax1.axhline(y=z_f0_mean + z_f0_limits, color='darkred', linestyle='--', linewidth=0.5, alpha=0.25,
+                            label=r'$z_{f0,\: lim}$')
                 ax1.axhline(y=z_f0_mean - z_f0_limits, color='darkred', linestyle='--', linewidth=0.5, alpha=0.25)
             ax1.axhline(y=z_f_mean, color='darkgreen', linestyle='--', linewidth=1, alpha=0.5, label=r'$z_{f}$')
             if z_f_limits:
-                ax1.axhline(y=z_f_mean + z_f_limits, color='darkgreen', linestyle='--', linewidth=0.5, alpha=0.25, label=r'$z_{f,\: lim}$')
+                ax1.axhline(y=z_f_mean + z_f_limits, color='darkgreen', linestyle='--', linewidth=0.5, alpha=0.25,
+                            label=r'$z_{f,\: lim}$')
                 ax1.axhline(y=z_f_mean - z_f_limits, color='darkgreen', linestyle='--', linewidth=0.5, alpha=0.25)
             ax1.scatter(dfplot.x, dfplot.z_f_calc, c=color, s=2, label=r'$z_{raw}(p_{i})$')
             ax1.set_xlabel('x (pixels)')
@@ -1215,7 +1507,6 @@ def calc_calib_in_focus_z(cficts, dficts=None, only_particle_ids=None,
             if show_z_focus_plot:
                 plt.show()
             plt.close(fig)
-
 
         # PER-COLLECTION IN-FOCUS CORRECTIONS ARE PERFORMED HERE!
         # NOTE: the actual corrections are performed here.
@@ -1310,7 +1601,7 @@ def correct_nonuniform_particle_ids_with_padding(baseline, coords, baseline_padd
     :return:
     """
     # plot before and after particle locations
-    fig, [ax1, ax2] = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches*2, size_y_inches))
+    fig, [ax1, ax2] = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches * 2, size_y_inches))
 
     ax1.set_title('Before Padding Shift')
     ax1.scatter(coords.x, coords.y, s=5, color='blue')
@@ -1382,7 +1673,7 @@ def correct_nonuniform_particle_ids_with_padding(baseline, coords, baseline_padd
         plt.show()
 
     # plot
-    fig, ax = plt.subplots(figsize=(size_x_inches*1.25, size_y_inches))
+    fig, ax = plt.subplots(figsize=(size_x_inches * 1.25, size_y_inches))
     ax.scatter(export_orig.x, export_orig.y, c=export_orig.index, s=10, alpha=0.25, label='Matched Test ID')
     ax.scatter(baseline.x, baseline.y, c=baseline.index, marker='x', s=4, label='Original Calib. ID')
     ax.set_ylabel('y (pix)')

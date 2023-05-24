@@ -2,6 +2,7 @@
 
 import os
 from os.path import join
+import random
 import numpy as np
 import pandas as pd
 from scipy.optimize import curve_fit
@@ -38,34 +39,51 @@ sci_color_cycler = ax._get_lines.prop_cycler
 size_x_inches, size_y_inches = fig.get_size_inches()
 plt.close(fig)
 
+sciblue = '#0C5DA5'
+scigreen = '#00B945'
+scired = '#FF2C00'
+sciorange = '#FF9500'
+
 
 # -------------------------------------- SPCT STATS ANALYSIS FUNCTIONS -------------------------------------------------
 
 
-def plot_spct_stats(base_dir):
+def plot_spct_stats(base_dir, method='spct'):
     # modifiers
-    calc_plane_angle = True
+    correct_before_analyzing = False
+    calc_plane_angle = False
     spct_image_stats = True
-    position_3d_by_frame = True
-    precision = True
-    per_mindx_id = True
-    per_percent_dx_diameter_id = True
+    position_3d_by_frame = False
+    precision = False
+    per_mindx_id = False
+    per_percent_dx_diameter_id = False
     sampling_frequency = True
 
     # export results & show, save plots
     export_results = True
-    save_figs = False
+    save_figs = True
     show_figs = False
 
     # filepaths
     path_calib_coords = join(base_dir, 'coords/calib-coords')
-    path_results = join(base_dir, 'results')
-    path_figs = join(base_dir, 'figs')
+    path_results = join(base_dir, 'results', 'spct-stats')
+
+    # make sub-dirs for "spct-stats"
+    if not os.path.exists(path_results):
+        os.makedirs(path_results)
+
+    path_figs = join(path_results, 'figs')
+    path_results = join(path_results, 'results')
+
+    if not os.path.exists(path_results):
+        os.makedirs(path_results)
+    if not os.path.exists(path_figs):
+        os.makedirs(path_figs)
 
     # --- experimental details
-    method = 'spct'
 
     # read calibration coords
+    print(method)
     dfc, dfcpid, dfcpop, dfcstats = io.read_calib_coords(path_calib_coords, method=method)
 
     # read from spct analysis
@@ -93,6 +111,34 @@ def plot_spct_stats(base_dir):
     dict_spct_stats_bin_z = None
     dict_1d_static_precision_id = None
     dict_spct_stats_sampling_frequency = None
+
+    # ---
+
+    # ------------------------------------------- CORRECT BEFORE ANALYSIS ----------------------------------------------
+
+    if correct_before_analyzing:
+        param_z = 'z'
+        param_z_true = 'z_true'
+        param_zf = 'zf_from_nsv'
+        kx_c = 2
+        ky_c = 2
+        img_xc, img_yc = 256, 256
+
+        zf_nearest_calib_mean = dfcpid.zf_nearest_calib.mean()
+        dfcpid_f = dfcpid[(dfcpid['zf_nearest_calib'] > zf_nearest_calib_mean - 5) &
+                          (dfcpid['zf_nearest_calib'] < zf_nearest_calib_mean + 5)]
+
+        dfcstats_field_curvature_and_tilt_corrected = correct.correct_test_by_calibration_fitting(dfcstats,
+                                                                                                  param_z,
+                                                                                                  param_z_true,
+                                                                                                  dfcpid_f,
+                                                                                                  param_zf,
+                                                                                                  microns_per_pixel,
+                                                                                                  img_xc, img_yc,
+                                                                                                  kx_c, ky_c,
+                                                                                                  path_figs,
+                                                                                                  )
+        dfcstats = dfcstats_field_curvature_and_tilt_corrected
 
     # ------------------------------------------------- FIT PLANE ------------------------------------------------------
 
@@ -149,7 +195,7 @@ def plot_spct_stats(base_dir):
             # check if there is mean displacement of the entire particle group
             df = df[(df['z_corr'] > -50) & (df['z_corr'] < 50)]
             dfcounts = df.groupby('id').count().reset_index()
-            df = df[df['id'].isin(dfcounts[dfcounts['id'] == dfcounts.id.max()].id.unique())]
+            df = df[df['id'].isin(dfcounts[dfcounts['frame'] > dfcounts.frame.max() - 3].id.unique())]
             dfg = df.groupby('frame').mean().reset_index()
 
             fig, ax = plt.subplots()
@@ -282,6 +328,7 @@ def plot_spct_stats(base_dir):
 
         penetrance_num_frames = max_num_frames * 0.8
         penetrance_num_pids = len(df_penetrance.id.unique())
+        penetrance_pids = df_penetrance.id.unique()
 
         dict_penetrance = {'max_idd_num_frames': max_num_frames,
                            'penetrance_num_frames': penetrance_num_frames,
@@ -293,7 +340,7 @@ def plot_spct_stats(base_dir):
         columns_to_bin = ['z_corr', 'r']
         plot_columns = ['gauss_sigma_x_y']
         column_to_count = 'id'
-        bin_z = [-20, -10, 0, 10, 20]
+        bin_z = 9
         bin_r = 4
         min_num_bin = 10
 
@@ -379,21 +426,21 @@ def plot_spct_stats(base_dir):
     if position_3d_by_frame:
 
         df = dfcstats
-        particle_ids_to_inspect = [21, 27, 29, 44, 45, 65]
+
+        if len(penetrance_pids) > 5:
+            particle_ids_to_inspect = [int(p) for p in random.sample(set(penetrance_pids), 5)]
+        else:
+            particle_ids_to_inspect = penetrance_pids
 
         for pid in particle_ids_to_inspect:
             dfpid = df[df['id'] == pid]
 
-            fig, [ax1, ax2] = plt.subplots(nrows=2, sharex=True, figsize=(size_x_inches, size_y_inches * 1.25))
-
-            ax1.plot(dfpid.frame, dfpid.gauss_xc, label='Gaussian')
-            ax1.plot(dfpid.frame, dfpid.x, label='Centroid')
-            ax1.set_ylabel('x')
-
-            ax2.plot(dfpid.frame, dfpid.gauss_xc)
-            ax2.plot(dfpid.frame, dfpid.x)
-            ax2.set_ylabel('y')
-            ax2.set_xlabel('frame')
+            fig, ax = plt.subplots()
+            ax.plot(dfpid.frame, dfpid.gauss_xc, label=r'$x_{G}$')
+            ax.plot(dfpid.frame, dfpid.gauss_yc, label=r'$y_{G}$')
+            ax.set_ylabel('position')
+            ax.set_xlabel('frame')
+            ax.legend()
             plt.show()
 
     # ------------------------------------------ PRECISION (Z, R, ID) --------------------------------------------------
@@ -447,12 +494,12 @@ def plot_spct_stats(base_dir):
     # ---------------------------------------- PRECISION (MIN DX, ID) --------------------------------------------------
 
     if per_mindx_id:
-        df = dfcstats
+        # df = dfcstats
 
         column_to_bin = 'min_dx'
-        precision_columns = ['x', 'gauss_xc', 'y', 'gauss_yc']
-        bin_mdx = 5
-        round_mdx = 4
+        precision_columns = ['x', 'gauss_xc', 'y', 'gauss_yc', 'gauss_rc']
+        bin_mdx = 7
+        round_mdx = 1
         bin_count_threshold = 20
 
         bin_plot_spct_stats_2d_static_precision_mindx_id(df, column_to_bin, precision_columns, bin_mdx, round_mdx,
@@ -466,10 +513,10 @@ def plot_spct_stats(base_dir):
 
         column_to_bin = 'percent_dx_diameter'
         precision_columns = ['x', 'gauss_xc', 'y', 'gauss_yc']
-        bin_pdo = 4
-        round_pdo = 4
+        bin_pdo = 7
+        round_pdo = 3
         bin_count_threshold = 20
-        pdo_threshold = -3
+        pdo_threshold = -1.5
 
         bin_plot_spct_stats_2d_static_precision_pdo_id(df, column_to_bin, precision_columns, bin_pdo, round_pdo,
                                                        pdo_threshold, bin_count_threshold,
@@ -602,6 +649,625 @@ def plot_spct_stats(base_dir):
     df_spct_results.to_excel(path_results + '/spct-stats-overview-results.xlsx')
 
 
+# -------------------------------------- SIMILARITY ANALYSIS FUNCTIONS -------------------------------------------------
+
+
+def plot_similarity_stats_simple(base_dir, min_percent_layers=0.75):
+
+    path_similarity = join(base_dir, 'similarity')
+    path_results = join(base_dir, 'results', 'similarity-simple')
+
+    if not os.path.exists(path_results):
+        os.makedirs(path_results)
+
+    # read
+    dfs, dfsf, dfsm, dfas, dfcs = io.read_similarity(path_similarity)
+
+    # plot
+    if dfsf is not None:
+        fig, ax = plotting.plot_calib_stack_self_similarity(dfsf, min_percent_layers=min_percent_layers)
+        ax.set_xlabel(r'$z_{calib.} \: (\mu m)$')
+        ax.set_ylabel(r'$\overline{S}_{(i, i+1)}$')
+        plt.tight_layout()
+        plt.savefig(path_results + '/calib_self-similarity-forward.svg')
+        plt.show()
+
+    if dfsm is not None:
+        fig, ax = plotting.plot_calib_stack_self_similarity(dfsm, min_percent_layers=min_percent_layers)
+        ax.set_xlabel(r'$z_{calib.} \: (\mu m)$')
+        ax.set_ylabel(r'$\overline{S}_{(i-1, i, i+1)}$')
+        plt.tight_layout()
+        plt.savefig(path_results + '/calib_self-similarity-middle.svg')
+        plt.show()
+
+    if dfcs is not None:
+        fig, ax = plotting.plot_particle_to_particle_similarity(dfcs, min_particles_per_frame=10)
+        ax.set_xlabel(r'$z_{calib.} \: (\mu m)$')
+        ax.set_ylabel(r'$\overline{S}(i, N_{I})$')
+        plt.tight_layout()
+        plt.savefig(path_results + '/calib_per-frame_particle-to-particle-similarity.svg')
+        plt.show()
+
+# ---
+
+
+def plot_similarity_analysis(base_dir, method='spct', mean_min_dx=None):
+    # modifiers
+    plot_figs_spct_stats = True
+    self_similarity = True
+    collection_similarity = False
+    compare_collection_and_self_similarity = False
+
+    # --- structure files
+    path_calib_coords = join(base_dir, 'coords/calib-coords')
+    path_similarity = join(base_dir, 'similarity')
+    path_results = join(base_dir, 'results')
+    path_figs = join(base_dir, 'figs')
+
+    path_save = join(path_figs, 'similarity-analysis')
+    if not os.path.exists(path_save):
+        os.makedirs(path_save)
+
+    # --- read data
+    dfc, dfcpid, dfcpop, dfstats = io.read_calib_coords(path_calib_coords, method=method)
+    dfs, dfselfsim, dfsm, dfavgimgsim, dfimgsim = io.read_similarity(path_similarity)
+
+    # modifier
+    if dfimgsim is not None:
+        collection_similarity = True
+        compare_collection_and_self_similarity = True
+
+    # --- spct stats
+
+    if 'area_contour' in dfstats.columns:
+        dfstats = dfstats.rename(columns={'area_contour': 'contour_area'})
+
+    if 'diameter_contour' in dfstats.columns:
+        dfstats = dfstats.rename(columns={'diameter_contour': 'contour_diameter'})
+
+    # --- process data
+    dfstats = dfstats[['frame', 'id', 'z_true', 'z', 'z_corr', 'peak_int', 'mean_int', 'bkg_mean', 'bkg_noise',
+                       'contour_area', 'contour_diameter', 'gauss_diameter', 'min_dx']]
+    dfstats['snr'] = (dfstats['mean_int'] - dfstats['bkg_mean']) / dfstats['bkg_noise']
+
+    dfstats_mean = dfstats.groupby('frame').mean()
+    dfstats_std = dfstats.groupby('frame').std()
+
+    # --- calculate mean and min lateral spacing in-focus
+    if mean_min_dx is None:
+        if dfcpop is not None:
+            mean_min_dx_zf = dfcpop.loc['zf_min_dx', 'mean']
+        else:
+            mean_min_dx_zf = dfstats_mean.min_dx.min()
+    else:
+        mean_min_dx_zf = mean_min_dx
+
+    # --- plot spct stats
+
+    if plot_figs_spct_stats:
+
+        # setup figures
+        z_params = ['z_corr', 'z']
+        ms = 2
+
+        for z in z_params:
+            # figure 1, 2: snr, contour_area(z, z_corr)
+
+            fig, ax = plt.subplots()
+
+            ax.plot(dfstats_mean[z], dfstats_mean.snr, '-o', ms=ms, color=sciblue, label='SNR')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$SNR$')
+            ax.set_ylim(bottom=0)
+            # ax.set_yticks([0, 10, 20, 30, 40])
+
+            axr = ax.twinx()
+            axr.plot(dfstats_mean[z], dfstats_mean.contour_area, '-o', ms=ms, color=scigreen, label='Area')
+            axr.set_ylabel(r'$Area \: (pix.)$')
+            axr.set_ylim(bottom=0)
+            # axr.set_yticks([0, 100, 200, 300])
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_snr-area_by_{}.png'.format(z))
+            plt.show()
+
+            # figure 2: snr, contour_diameter(z, z_corr)
+
+            fig, ax = plt.subplots(figsize=(size_x_inches * 1, size_y_inches))
+
+            ax.plot(dfstats_mean[z], dfstats_mean.snr, '-o', ms=ms, color=sciblue, label='SNR')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$SNR$')
+            ax.set_ylim(bottom=0)
+            # ax.set_yticks([0, 10, 20, 30, 40])
+
+            axr = ax.twinx()
+            axr.plot(dfstats_mean[z], dfstats_mean.contour_diameter, '-o', ms=ms, color=scigreen, label=r'$d_{e}$')
+            axr.set_ylabel(r'$d_{e} \: (pix.)$')
+            axr.set_ylim(bottom=0, top=40)
+            axr.set_yticks([0, 10, 20, 30, 40])
+
+            # plot line for mean dx
+            axr.axhline(mean_min_dx_zf, linewidth=0.5, linestyle='--', color='black', alpha=0.5,
+                        label=r'$\overline{\delta x}_{min}$')
+
+            axr.legend(loc='upper left')
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_snr-diameter_by_{}.png'.format(z))
+            plt.show()
+
+            # figure 3: peak intensity, contour_diameter(z, z_corr)
+
+            fig, ax = plt.subplots(figsize=(size_x_inches * 1, size_y_inches))
+
+            ax.plot(dfstats_mean[z], dfstats_mean.peak_int, '-o', ms=ms, color=sciblue, label=r'$I_{o}$')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$I_{o} \: (A.U.)$')
+            ax.set_ylim(bottom=0)
+            # ax.set_yticks([0, 10, 20, 30, 40])
+
+            axr = ax.twinx()
+            axr.plot(dfstats_mean[z], dfstats_mean.contour_diameter, '-o', ms=ms, color=scigreen,
+                     label=r'$d_{e} \: (pix.)$')
+            axr.set_ylabel(r'$d_{e} \: (pix.)$')
+            axr.set_ylim(bottom=0, top=40)
+            axr.set_yticks([0, 10, 20, 30, 40])
+
+            # plot line for mean dx
+            axr.axhline(mean_min_dx_zf, linewidth=0.5, linestyle='--', color='black', alpha=0.5,
+                        label=r'$\overline{\delta x}_{min}$')
+
+            axr.legend(loc='upper left')
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_peak-int-diameter_by_{}.png'.format(z))
+            plt.show()
+
+        # ---
+
+    # --- spct collection similarity
+
+    if collection_similarity:
+
+        # if no z_corr, create one
+        dfimgsim['z_corr'] = dfimgsim.z - (dfstats.iloc[0].z - dfstats.iloc[0].z_corr)
+
+        # --- process data
+        dfimgsim_mean = dfimgsim.groupby('frame').mean()
+        dfimgsim_std = dfimgsim.groupby('frame').std()
+
+        # setup figure
+        z_params = ['z', 'z_corr']
+        ms = 2
+
+        # figure 1: cm, SNR(z)
+
+        for z in z_params:
+            fig, ax = plt.subplots()
+
+            ax.plot(dfimgsim_mean[z], dfimgsim_mean.cm, '-o', ms=ms, color=sciblue, label='cm')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+            ax.set_ylim(bottom=0)
+            # ax.set_yticks([0, 10, 20, 30, 40])
+
+            axr = ax.twinx()
+            axr.plot(dfstats_mean[z], dfstats_mean.snr, '-o', ms=ms, color=scigreen, label='SNR')
+            axr.set_ylabel(r'$SNR$')
+            axr.set_ylim(bottom=0)
+            # axr.set_yticks([0, 100, 200, 300])
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm-snr_by_{}.png'.format(z))
+            plt.show()
+
+            # figure 2: cm, contour_area(z)
+
+            fig, ax = plt.subplots()
+
+            ax.plot(dfimgsim_mean[z], dfimgsim_mean.cm, '-o', ms=ms, color=sciblue, label='cm')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+            ax.set_ylim(bottom=0)
+            # ax.set_yticks([0, 10, 20, 30, 40])
+
+            axr = ax.twinx()
+            axr.plot(dfstats_mean[z], dfstats_mean.contour_area, '-o', ms=ms, color=scigreen, label='Area')
+            axr.set_ylabel(r'$Area \: (pix.)$')
+            axr.set_ylim(bottom=0)
+            # axr.set_yticks([0, 100, 200, 300])
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm-area_by_{}.png'.format(z))
+            plt.show()
+
+            # figure 3: cm, (snr, contour_area)
+
+            fig, ax = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches * 1.5, size_y_inches),
+                                   gridspec_kw={'width_ratios': [1, 1.2]})
+
+            ax[0].scatter(dfstats_mean.snr, dfimgsim_mean.cm, c=dfimgsim_mean[z],
+                          cmap='RdBu', s=ms * 2, label='cm')
+            ax[0].set_xlabel(r'$SNR$')
+            ax[0].set_xlim(left=0)
+            ax[0].set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+
+            sc = ax[1].scatter(dfstats_mean.contour_area, dfimgsim_mean.cm,
+                               c=dfimgsim_mean[z], cmap='RdBu', s=ms * 2, label='cm')
+            cbar = plt.colorbar(sc, ax=ax[1], extend='both', aspect=40, label=r'$z \: (\mu m)$')
+            cbar.minorticks_on()
+            ax[1].set_xlabel(r'$Area \: (pix.)$')
+            ax[1].set_xlim(left=0)
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm_by_snr-area.png')
+            plt.show()
+
+            # figure 4: cm, [normalized(snr, contour_area)]
+
+            fig, ax = plt.subplots(ncols=2, sharey=True, figsize=(size_x_inches * 1.5, size_y_inches),
+                                   gridspec_kw={'width_ratios': [1, 1.2]})
+
+            ax[0].scatter(dfstats_mean.snr / dfstats_mean.snr.max(), dfimgsim_mean.cm,
+                          c=dfimgsim_mean[z], cmap='RdBu', s=ms * 2, label='cm')
+            ax[0].set_xlabel(r'$SNR/SNR_{max}$')
+            ax[0].set_xlim(left=0)
+            ax[0].set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+
+            sc = ax[1].scatter(dfstats_mean.contour_area / dfstats_mean.contour_area.max(), dfimgsim_mean.cm,
+                               c=dfimgsim_mean[z], cmap='RdBu', s=ms * 2, label='cm')
+            cbar = plt.colorbar(sc, ax=ax[1], extend='both', aspect=40, label=r'$z \: (\mu m)$')
+            cbar.minorticks_on()
+            ax[1].set_xlabel(r'$A/A_{max}$')
+            ax[1].set_xlim(left=0)
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm_by_normalized-snr-area.png')
+            plt.show()
+
+            # figure 5: cm, [normalized(snr, contour_area)]
+
+            fig, ax = plt.subplots()
+
+            sc = ax.scatter(
+                dfstats_mean.snr / dfstats_mean.snr.max() * dfstats_mean.contour_area / dfstats_mean.contour_area.max(),
+                dfimgsim_mean.cm, c=dfimgsim_mean[z], cmap='RdBu', s=ms * 2, label='cm')
+            cbar = plt.colorbar(sc, ax=ax, extend='both', aspect=40, label=r'$z \: (\mu m)$')
+            cbar.minorticks_on()
+            ax.set_xlabel(r'$\frac{SNR}{SNR_{max}} \frac{Area}{Area_{max}}$')
+            ax.set_xlim(left=0)
+            ax.set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm_by_norm-snr-area.png')
+            plt.show()
+
+            # figure 6: cm(information-to-noise ratio = [normalized(snr, contour_area)])
+
+            fig, ax = plt.subplots()
+
+            sc = ax.scatter(
+                dfstats_mean.snr / dfstats_mean.snr.max() * dfstats_mean.contour_area / dfstats_mean.contour_area.max(),
+                dfimgsim_mean.cm, c=dfimgsim_mean[z], cmap='RdBu', s=ms * 2, label='cm')
+            cbar = plt.colorbar(sc, ax=ax, extend='both', aspect=40, label=r'$z \: (\mu m)$')
+            cbar.minorticks_on()
+            ax.set_xlabel(r'$INR$')
+            ax.set_xlim(left=0)
+            ax.set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm_by_information-to-noise-ratio.png')
+            plt.show()
+
+            # figure 7: variance of cm(information-to-noise ratio = [normalized(snr, contour_area)])
+
+            fig, ax = plt.subplots()
+
+            sc = ax.scatter(
+                dfstats_mean.snr / dfstats_mean.snr.max() * dfstats_mean.contour_area / dfstats_mean.contour_area.max(),
+                np.sqrt(dfimgsim_std.cm), c=dfimgsim_mean[z], cmap='RdBu', s=ms * 2, label='cm')
+            cbar = plt.colorbar(sc, ax=ax, extend='both', aspect=40, label=r'$z \: (\mu m)$')
+            cbar.minorticks_on()
+            ax.set_xlabel(r'$INR$')
+            ax.set_xlim(left=0)
+            ax.set_ylabel(r'$\sigma^2 ( \overline{S} (p_{i}, p_{N}) ) $')
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_variance-cm_by_information-to-noise-ratio.png')
+            plt.show()
+
+            # figure 8: error bars: cm(z)
+
+            fig, ax = plt.subplots(figsize=(size_x_inches * 1.5, size_y_inches))
+
+            ax.errorbar(dfimgsim_mean[z], dfimgsim_mean.cm, yerr=dfimgsim_std.cm,
+                        ms=ms, marker='o', capsize=2, elinewidth=1, color=sciblue, label='cm')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\overline{S}(p_{i}, p_{N})$')
+            ax.set_ylim(bottom=0)
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_cm_by_{}_errorbars.png'.format(z))
+            plt.show()
+
+            # figure 9: variance cm(z)
+
+            fig, ax = plt.subplots()
+
+            ax.plot(dfimgsim_mean[z], np.sqrt(dfimgsim_std.cm), '-o', ms=ms, color=sciblue, label='cm')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\sigma^2 ( \overline{S} (p_{i}, p_{N}) ) $')
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_variance-cm_by_{}.png'.format(z))
+            plt.show()
+
+            # figure 10: normalized(SNR, area, cm, variance cm) ~ f(z)
+
+            ms = 1
+            fig, ax = plt.subplots(figsize=(size_x_inches * 1.2, size_y_inches))
+
+            ax.plot(dfimgsim_mean[z], dfstats_mean.snr / dfstats_mean.snr.max(),
+                    '-o', ms=ms, label=r'$\tilde{SNR}$')
+
+            ax.plot(dfimgsim_mean[z], dfstats_mean.contour_area / dfstats_mean.contour_area.max(),
+                    '-o', ms=ms, label=r'$\tilde{A}$')
+
+            ax.plot(dfimgsim_mean[z], dfimgsim_mean.cm / np.max(dfimgsim_mean.cm),
+                    '-o', ms=ms, label=r'$\tilde{c_{m}}$')
+
+            ax.plot(dfimgsim_mean[z], np.sqrt(dfimgsim_std.cm) / np.max(np.sqrt(dfimgsim_std.cm)),
+                    '-o', ms=ms, label=r'$\tilde{\sigma^2(c_{m})}$', alpha=0.5)
+
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            # ax.set_ylabel(r'$\sigma^2 ( \overline{S} (p_{i}, p_{N}) ) $')
+            ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+
+            plt.tight_layout()
+            plt.savefig(path_save + '/spct_normalized-snr-area-cm-variance-cm_by_{}.png'.format(z))
+            plt.show()
+
+        # ---
+
+    # ---
+
+    # --- spct self similarity
+
+    if self_similarity:
+
+        # if no z_corr, create one
+        dfselfsim['z_corr'] = dfselfsim.z - (dfstats.iloc[0].z - dfstats.iloc[0].z_corr)
+
+        # --- process data
+        dfselfsim_mean = dfselfsim.groupby('z').mean().reset_index()
+        dfselfsim_std = dfselfsim.groupby('z').std().reset_index()
+
+        # setup figure
+        z_params = ['z', 'z_corr']
+        ms = 2
+
+        # figure 1: cm, SNR(z)
+
+        for param_z in z_params:
+            fig, ax = plt.subplots()
+
+            ax.plot(dfselfsim_mean[param_z], dfselfsim_mean.cm, '-o', ms=ms)
+
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\overline {S} (z_{i}, z_{i+1})$')
+            plt.tight_layout()
+            plt.savefig(path_save + '/forward-self-similarity_{}.png'.format(param_z))
+            plt.show()
+            plt.close()
+
+            # figure 2: cm, SNR(z)
+
+            fig, ax = plt.subplots()
+
+            ax.errorbar(dfselfsim_mean[param_z], dfselfsim_mean.cm, yerr=dfselfsim_std.cm,
+                        ms=ms, marker='o', capsize=2, elinewidth=1, color=sciblue, label='cm')
+
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\overline {S} (z_{i}, z_{i+1})$')
+            plt.tight_layout()
+            plt.savefig(path_save + '/forward-self-similarity_{}_errorbars.png'.format(param_z))
+            plt.show()
+            plt.close()
+
+            # figure 3: variance cm(z)
+
+            fig, ax = plt.subplots()
+
+            ax.plot(dfselfsim_mean[param_z], np.sqrt(dfselfsim_std.cm), '-o', ms=ms)
+
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$\sigma^2 ( \overline {S} (z_{i}, z_{i+1}) ) $')
+            plt.tight_layout()
+            plt.savefig(path_save + '/variance-forward-self-similarity_{}.png'.format(param_z))
+            plt.show()
+            plt.close()
+
+            # figure 4: gradient cm(z)
+
+            fig, ax = plt.subplots()
+
+            ax.plot(dfselfsim_mean[param_z], np.abs(dfselfsim_mean.cm.diff()), '-o', ms=ms)
+
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$ \lvert \frac {d\overline {S} (z_{i}, z_{i+1})} {dz} \rvert $')
+            plt.tight_layout()
+            plt.savefig(path_save + '/gradient-forward-self-similarity_{}.png'.format(param_z))
+            plt.show()
+            plt.close()
+
+        # ---
+
+    # ---
+
+    # --- compare collection similarity to self similarity
+
+    if compare_collection_and_self_similarity:
+
+        # setup
+        calib_stack_id = 45
+        filter_percent_layers = 0.8
+        z_offset = -67
+
+        path_save_compare = join(path_save, 'compare-col-and-self')
+        if not os.path.exists(path_save_compare):
+            os.makedirs(path_save_compare)
+
+        # --- processing
+
+        # if no z_corr, create one
+        if 'z_corr' not in dfimgsim.columns:
+            pass
+            dfimgsim['z_corr'] = dfimgsim.z - (dfstats.iloc[0].z - dfstats.iloc[0].z_corr)
+
+        if 'z_corr' not in dfselfsim.columns:
+            pass
+            dfselfsim['z_corr'] = dfselfsim.z - (dfstats.iloc[0].z - dfstats.iloc[0].z_corr)
+
+        # average per z - collection similarities
+        dfimgsim_mean = dfimgsim.groupby('frame').mean()
+        dfimgsim_std = dfimgsim.groupby('frame').std()
+
+        # self-similarity - ONLY the single calibration particle used for testing
+        dfselfsim_spc = dfselfsim[dfselfsim['id'] == calib_stack_id]
+
+        # self-similarity - average of all particles in calibration set
+        dfselfsim = dfselfsim[dfselfsim['layers'] > dfselfsim['layers'].max() * filter_percent_layers]
+        dfselfsim_num_stacks = len(dfselfsim.id.unique())
+        dfselfsim_mean = dfselfsim.groupby('z').mean().reset_index()
+        dfselfsim_std = dfselfsim.groupby('z').std().reset_index()
+
+        # ---
+
+        # --- plotting
+
+        # setup
+        z = 'z'
+        ms = 3
+        capsize = 1.5
+        elinewidth = 0.5
+
+        # plot
+
+        # figure: error bars collection similarity + plot single particle calibration used for testing
+        fig, ax = plt.subplots()
+
+        ax.errorbar(dfimgsim_mean[z] + z_offset, dfimgsim_mean.cm, yerr=dfimgsim_std.cm,
+                    ms=ms, marker='o', capsize=capsize, elinewidth=elinewidth, color=sciblue,
+                    label=r'$\overline{S}(p_{i}, p_{N})$')
+        ax.plot(dfselfsim_spc[z] + z_offset, dfselfsim_spc.cm, ms=ms, marker='o', color=scired,
+                    label=r'${S} (z_{i}, z_{i+1})$')
+
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel(r'$S$')
+        ax.set_ylim(bottom=0.675)
+        ax.legend()
+
+        plt.tight_layout()
+        plt.savefig(path_save_compare + '/spct_compare-col-and-self-sim-spc_by_{}.svg'.format(z))
+        plt.show()
+
+        # ---
+
+        # figure: error bars: compare similarity
+        fig, ax = plt.subplots()
+
+        ax.errorbar(dfimgsim_mean[z] + z_offset, dfimgsim_mean.cm, yerr=dfimgsim_std.cm,
+                    ms=ms, marker='o', capsize=capsize, elinewidth=elinewidth, color=sciblue,
+                    label=r'$\overline{S}(p_{i}, p_{N})$')
+        ax.errorbar(dfselfsim_mean[z] + z_offset, dfselfsim_mean.cm, yerr=dfselfsim_std.cm,
+                    ms=ms, marker='o', capsize=capsize, elinewidth=elinewidth, color=scired,
+                    label=r'$\overline {S} (z_{i}, z_{i+1})$')
+
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel(r'$\overline {S}$')
+        ax.set_ylim(bottom=0.675)
+        ax.legend()
+
+        plt.tight_layout()
+        plt.savefig(path_save_compare +
+                    '/spct_compare-col-and-self-sim-avg-{}-stacks_by_{}_errorbars.svg'.format(dfselfsim_num_stacks, z))
+        plt.show()
+
+# ---
+
+
+# -------------------------------------- ASSESS QUALITY OF BEST FOCUS CORRECTION ---------------------------------------
+
+
+def assess_focus_correction(base_dir):
+    # modifiers
+
+    # export results & show, save plots
+    export_results = True
+    save_figs = True
+    show_figs = False
+
+    # filepaths
+    path_calib_coords = join(base_dir, 'coords/calib-coords')
+    path_results = join(base_dir, 'results')
+    path_figs = join(base_dir, 'figs')
+
+    # --- experimental details
+    method = 'spct'
+
+    # read calibration coords
+    dfc, dfcpid, dfcpop, dfcstats = io.read_calib_coords(path_calib_coords, method=method)
+
+    # read from spct analysis
+    mag_eff, zf, c1, c2 = io.read_pop_gauss_diameter_properties(dfcpop)
+    if mag_eff == 10:
+        microns_per_pixel = 1.6
+    elif mag_eff == 20:
+        microns_per_pixel = 0.8
+    elif mag_eff == 5:
+        microns_per_pixel = 3.2
+    else:
+        raise ValueError('Effective magnification is not equal to 5, 10 or 20?')
+
+    # spct stats
+    image_dimensions = (512, 512)
+    area = (image_dimensions[0] * microns_per_pixel) * (image_dimensions[1] * microns_per_pixel)
+    particle_ids = dfcstats.id.unique()
+    num_pids = len(dfcstats.id.unique())
+    num_frames = len(dfcstats.frame.unique())
+    measurement_depth = dfcstats.z_corr.max() - dfcstats.z_corr.min()
+
+    # ---
+
+    correct_before_analyzing = True
+    # ------------------------------------------- CORRECT BEFORE ANALYSIS ----------------------------------------------
+
+    if correct_before_analyzing:
+        param_z = 'z'
+        param_z_true = 'z_true'
+        param_zf = 'zf_from_nsv'
+        kx_c = 2
+        ky_c = 2
+        img_xc, img_yc = 256, 256
+
+        zf_nearest_calib_mean = dfcpid.zf_nearest_calib.mean()
+        dfcpid_f = dfcpid[(dfcpid['zf_nearest_calib'] > zf_nearest_calib_mean - 5) &
+                          (dfcpid['zf_nearest_calib'] < zf_nearest_calib_mean + 5)]
+
+        dfcstats_field_curvature_and_tilt_corrected = correct.correct_test_by_calibration_fitting(dfcstats,
+                                                                                                  param_z,
+                                                                                                  param_z_true,
+                                                                                                  dfcpid_f,
+                                                                                                  param_zf,
+                                                                                                  microns_per_pixel,
+                                                                                                  img_xc, img_yc,
+                                                                                                  kx_c, ky_c,
+                                                                                                  path_figs,
+                                                                                                  )
+        dfcstats = dfcstats_field_curvature_and_tilt_corrected
+
+# ---
+
 # ------------------------------------------ META ANALYSIS FUNCTIONS ---------------------------------------------------
 
 
@@ -619,6 +1285,9 @@ def plot_meta_assessment(base_dir, method, min_cm, min_percent_layers, microns_p
 
     # --- --- META ASSESSMENT
 
+    # test coords
+    dft = io.read_test_coords(path_test_coords)
+
     # calibration coords
     dfc, dfcpid, dfcpop, dfcstats = io.read_calib_coords(path_calib_coords, method=method)
 
@@ -628,34 +1297,69 @@ def plot_meta_assessment(base_dir, method, min_cm, min_percent_layers, microns_p
                                                                        method=method,
                                                                        dfs=[dfc, dfcpid])
 
-    # inspect initial distribution of in-focus particle positions
-    fig, ax = plotting.scatter_z_by_xy(df=dfcpid, z_params=['zf_from_peak_int', 'zf_from_nsv'])
-    fig.savefig(path_figs + '/zf_scatter_xy_int-and-nsv.png')
-    dict_fit_plane, fig_xy, fig_xyz, fig_plane = correct.inspect_calibration_surface(df=dfcpid,
-                                                                                     param_zf='zf_from_nsv',
-                                                                                     microns_per_pixel=microns_per_pixel)
-    fig_xy.savefig(path_figs + '/zf_scatter_xy.png')
-    plt.close(fig_xy)
-    fig_xyz.savefig(path_figs + '/zf_scatter_xyz.png')
-    plt.close(fig_xyz)
-    fig_plane.savefig(path_figs + '/zf_fit-3d-plane.png')
-    plt.close(fig_plane)
-
-    # read diameter paramaters
-    if path_calib_spct_pop is not None:
-        mag_eff, zf, c1, c2 = io.read_pop_gauss_diameter_properties(path_calib_spct_pop)
-    else:
-        mag_eff, zf, c1, c2 = io.read_pop_gauss_diameter_properties(dfcpop)
-
-    # test coords
-    dft = io.read_test_coords(path_test_coords)
-
     # correct test coords
-    dft = correct.correct_z_by_plane_tilt(dfcpid,
-                                          dft,
-                                          param_zf='zf_from_nsv',
-                                          param_z='z',
-                                          param_z_true='z_true')
+    calib_method = 'new'
+
+    if calib_method == 'new':
+        param_zf = 'zf_from_peak_int'
+        kx_c = 2
+        ky_c = 2
+        img_xc, img_yc = 256, 256
+
+        dict_fit_plane, dict_fit_plane_bspl_corrected, dfcal_field_curvature_corrected, bispl = \
+            correct.fit_plane_correct_plane_fit_spline(dfcal=dfcpid,
+                                                       param_zf=param_zf,
+                                                       microns_per_pixel=microns_per_pixel,
+                                                       img_xc=img_xc,
+                                                       img_yc=img_yc,
+                                                       kx=kx_c,
+                                                       ky=ky_c,
+                                                       path_figs=path_figs)
+
+        # step 4. correct original coordinates using the tilt-corrected bivariate spline (field curvature).
+        dft_bspl_corrected = correct.correct_z_by_spline(dft, bispl, param_z='z')
+        param_zf_corr = 'z_corr'
+
+        # step 2. correct coordinates using fitted plane
+        dft = correct.correct_z_by_plane_tilt(dfcal=None,
+                                              dftest=dft_bspl_corrected,
+                                              param_zf='none',
+                                              param_z=param_zf_corr,
+                                              param_z_true='z_true',
+                                              popt_calib=None,
+                                              params_correct=None,
+                                              dict_fit_plane=dict_fit_plane_bspl_corrected,
+                                              )
+
+    else:
+        # inspect initial distribution of in-focus particle positions
+        fig, ax = plotting.scatter_z_by_xy(df=dfcpid, z_params=['zf_from_peak_int', 'zf_from_nsv'])
+        fig.savefig(path_figs + '/zf_scatter_xy_int-and-nsv.png')
+        dict_fit_plane, fig_xy, fig_xyz, fig_plane = correct.inspect_calibration_surface(df=dfcpid,
+                                                                                         param_zf='zf_from_nsv',
+                                                                                         microns_per_pixel=microns_per_pixel,
+                                                                                         img_xc=256,
+                                                                                         img_yc=256,
+                                                                                         )
+        fig_xy.savefig(path_figs + '/zf_scatter_xy.png')
+        plt.close(fig_xy)
+        fig_xyz.savefig(path_figs + '/zf_scatter_xyz.png')
+        plt.close(fig_xyz)
+        fig_plane.savefig(path_figs + '/zf_fit-3d-plane.png')
+        plt.close(fig_plane)
+
+        # read diameter paramaters
+        if path_calib_spct_pop is not None:
+            mag_eff, zf, c1, c2 = io.read_pop_gauss_diameter_properties(path_calib_spct_pop)
+        else:
+            mag_eff, zf, c1, c2 = io.read_pop_gauss_diameter_properties(dfcpop)
+
+        # correct test coords
+        dft = correct.correct_z_by_plane_tilt(dfcpid,
+                                              dft,
+                                              param_zf='zf_from_nsv',
+                                              param_z='z',
+                                              param_z_true='z_true')
 
     # --- CALIBRATION CURVE
     fig, ax = plt.subplots()
@@ -716,7 +1420,7 @@ def plot_meta_assessment(base_dir, method, min_cm, min_percent_layers, microns_p
         plt.savefig(path_figs + '/calib_self-similarity-middle.png')
         plt.show()
 
-    if dfas is not None:
+    if dfcs is not None:
         fig, ax = plotting.plot_particle_to_particle_similarity(dfcs, min_particles_per_frame=10)
         ax.set_xlabel(r'$z_{calib.} \: (\mu m)$')
         ax.set_ylabel(r'$\overline{S}_{i}(p_{i}, p_{N})$')
@@ -727,52 +1431,53 @@ def plot_meta_assessment(base_dir, method, min_cm, min_percent_layers, microns_p
     # --- --- INTRINSIC ABERRATIONS ASSESSMENT
     # --- RAW
     # evaluate
-    dict_ia = analyze.evaluate_intrinsic_aberrations(dfs,
-                                                     z_f=zf,
-                                                     min_cm=min_cm,
-                                                     param_z_true='z_true',
-                                                     param_z_cm='z_cm')
+    if dfs is not None:
+        dict_ia = analyze.evaluate_intrinsic_aberrations(dfs,
+                                                         z_f=zf,
+                                                         min_cm=min_cm,
+                                                         param_z_true='z_true',
+                                                         param_z_cm='z_cm')
 
-    dict_ia = analyze.fit_intrinsic_aberrations(dict_ia)
-    io.export_dict_intrinsic_aberrations(dict_ia, path_results, unique_id='raw')
+        dict_ia = analyze.fit_intrinsic_aberrations(dict_ia)
+        io.export_dict_intrinsic_aberrations(dict_ia, path_results, unique_id='raw')
 
-    # plot
-    fig, ax = plotting.plot_intrinsic_aberrations(dict_ia, cubic=True, quartic=True)
-    ax.set_xlabel(r'$z_{raw} \: (\mu m)$')
-    ax.set_ylabel(r'$S_{max}(z_{l}) / S_{max}(z_{r})$')
-    ax.grid(alpha=0.125)
-    ax.legend(['Data', 'Cubic', 'Quartic'])
-    plt.tight_layout()
-    plt.savefig(path_figs + '/intrinsic-aberrations_raw.png')
-    plt.show()
+        # plot
+        fig, ax = plotting.plot_intrinsic_aberrations(dict_ia, cubic=True, quartic=True)
+        ax.set_xlabel(r'$z_{raw} \: (\mu m)$')
+        ax.set_ylabel(r'$S_{max}(z_{l}) / S_{max}(z_{r})$')
+        ax.grid(alpha=0.125)
+        ax.legend(['Data', 'Cubic', 'Quartic'])
+        plt.tight_layout()
+        plt.savefig(path_figs + '/intrinsic-aberrations_raw.png')
+        plt.show()
 
-    # --- CORRECTED
-    # evaluate
-    dfs_corr = correct.correct_z_by_plane_tilt(dfcal=dfcpid,
-                                               dftest=dfs,
-                                               param_zf='zf_from_nsv',
-                                               param_z='z_est',
-                                               param_z_true='z_true',
-                                               params_correct=['z_cm'])
+        # --- CORRECTED
+        # evaluate
+        dfs_corr = correct.correct_z_by_plane_tilt(dfcal=dfcpid,
+                                                   dftest=dfs,
+                                                   param_zf='zf_from_nsv',
+                                                   param_z='z_est',
+                                                   param_z_true='z_true',
+                                                   params_correct=['z_cm'])
 
-    dict_iac = analyze.evaluate_intrinsic_aberrations(dfs_corr,
-                                                      z_f=0,
-                                                      min_cm=min_cm,
-                                                      param_z_true='z_true_corr',
-                                                      param_z_cm='z_cm_corr')
+        dict_iac = analyze.evaluate_intrinsic_aberrations(dfs_corr,
+                                                          z_f=0,
+                                                          min_cm=min_cm,
+                                                          param_z_true='z_true_corr',
+                                                          param_z_cm='z_cm_corr')
 
-    dict_iac = analyze.fit_intrinsic_aberrations(dict_iac)
-    io.export_dict_intrinsic_aberrations(dict_iac, path_results, unique_id='corrected')
+        dict_iac = analyze.fit_intrinsic_aberrations(dict_iac)
+        io.export_dict_intrinsic_aberrations(dict_iac, path_results, unique_id='corrected')
 
-    # plot
-    fig, ax = plotting.plot_intrinsic_aberrations(dict_iac, cubic=True, quartic=True)
-    ax.set_xlabel(r'$z_{true} \: (\mu m)$')
-    ax.set_ylabel(r'$S_{max}(z_{l}) / S_{max}(z_{r})$')
-    ax.grid(alpha=0.125)
-    ax.legend(['Data', 'Cubic', 'Quartic'])
-    plt.tight_layout()
-    plt.savefig(path_figs + '/intrinsic-aberrations_corrected.png')
-    plt.show()
+        # plot
+        fig, ax = plotting.plot_intrinsic_aberrations(dict_iac, cubic=True, quartic=True)
+        ax.set_xlabel(r'$z_{true} \: (\mu m)$')
+        ax.set_ylabel(r'$S_{max}(z_{l}) / S_{max}(z_{r})$')
+        ax.grid(alpha=0.125)
+        ax.legend(['Data', 'Cubic', 'Quartic'])
+        plt.tight_layout()
+        plt.savefig(path_figs + '/intrinsic-aberrations_corrected.png')
+        plt.show()
 
 
 # ------------------------------- TEST RIGID DISPLACEMENT ANALYSIS FUNCTIONS -------------------------------------------
@@ -1016,26 +1721,39 @@ def plot_test_coords(df, evaluate):
 # ------------------------------------------------ ERROR ANALYSIS ------------------------------------------------------
 
 
-def plot_error_analysis(dft, path_figs, path_results):
-    # setup error
-    error_threshold = 7.5
-    bins_r = 5
-    bins_z = 33
+def plot_error_analysis(dft, error_column, error_threshold, img_center, xy_cols, microns_per_pixels,
+                        path_results,
+                        r_bins_microns=None, z_bins=None):
+
+    path_results = path_results + '/radial-dependence_of_{}_errlim{}'.format(error_column, error_threshold)
+    if not os.path.exists(path_results):
+        os.makedirs(path_results)
+
+    # setup
+    if r_bins_microns is None:
+        r_bins_microns = np.array([100, 300, 500])
+    elif isinstance(r_bins_microns, list):
+        r_bins_microns = np.array(r_bins_microns)
+
+    if z_bins is None:
+        bins_z = 21
+    else:
+        bins_z = z_bins
+
+    bin_local_r = r_bins_microns / microns_per_pixels
+    bins_r = len(bin_local_r)
 
     # plot
-    xlim = [-57.5, 62.5]
-    xyticks = [-50, -25, 0, 25, 50]
-    yerr_lims = [-7.5, 7.5]
-    yerr_ticks = [-5, 0, 5]
-
-    # basic
-    image_dimensions = (512, 512)
+    xlim = [-52.5, 57.5]
+    xyticks = [-50, 0, 50]
+    yerr_lims = [-3.5, 3.5]
+    yerr_ticks = [-2.5, 0, 2.5]
 
     # figs
-    fig_1, fig_2, fig_3, fig_4, fig_5 = True, True, True, True, True
+    fig_1, fig_2, fig_3, fig_4, fig_5 = False, True, False, False, False
 
     # test-coords without (mostly) focal plane bias errors
-    df_error = dft[dft['error'].abs() < error_threshold]
+    df_error = dft[dft[error_column].abs() < error_threshold]
     df_error = df_error.sort_values('z_true')
 
     # --- PLOTTING
@@ -1045,14 +1763,14 @@ def plot_error_analysis(dft, path_figs, path_results):
         fig, ax = plt.subplots()
 
         # data
-        ax.scatter(df_error.z_true, df_error.error, s=0.125, marker='.', label='Data')
+        ax.scatter(df_error.z_true, df_error[error_column], s=0.125, marker='.', label='Data')
 
         # fit quadratic
-        popt, pcov = curve_fit(functions.quadratic, df_error.z_true, df_error.error)
+        popt, pcov = curve_fit(functions.quadratic, df_error.z_true, df_error[error_column])
         ax.plot(df_error.z_true, functions.quadratic(df_error.z_true, *popt), linestyle='--', color='black',
                 label='Fit')
 
-        ax.set_xlabel(r'$z_{true} \: (\mu m)$')
+        ax.set_xlabel(r'$z \: (\mu m)$')
         ax.set_xlim(xlim)
         ax.set_xticks(ticks=xyticks, labels=xyticks)
         ax.set_ylabel(r'$\epsilon_{z} \: (\mu m)$')
@@ -1063,7 +1781,7 @@ def plot_error_analysis(dft, path_figs, path_results):
         ax.legend(loc='upper right')
 
         plt.tight_layout()
-        plt.savefig(path_figs + '/all_normalized-z-errors_by_z_and_fit-quadratic_errlim{}.png'.format(error_threshold))
+        plt.savefig(path_results + '/all_normalized-z-errors_by_z_and_fit-quadratic_errlim{}.svg'.format(error_threshold))
         plt.show()
 
     # ---
@@ -1072,8 +1790,8 @@ def plot_error_analysis(dft, path_figs, path_results):
     if fig_2:
         if 'r' not in df_error.columns:
             df_error['r'] = np.sqrt(
-                (df_error.x - image_dimensions[0] / 2) ** 2 +
-                (df_error.y - image_dimensions[1] / 2) ** 2
+                (df_error[xy_cols[0]] - img_center[0] / 2) ** 2 +
+                (df_error[xy_cols[1]] - img_center[1] / 2) ** 2
             )
 
         # bin(r)
@@ -1085,15 +1803,41 @@ def plot_error_analysis(dft, path_figs, path_results):
         dfb = bin.bin_generic(df_error,
                               column_to_bin,
                               column_to_count,
-                              bins_r,
+                              bin_local_r,
                               round_to_decimal,
                               return_groupby
                               )
 
         dfb = dfb.sort_values('bin')
 
+        # export for histogram
+        dfb.to_excel(path_results + '/dfb-r-z-histogram-errors_by_z_ec-{}_errlim{}.xlsx'.format(error_column,
+                                                                                                error_threshold))
+
+        # ---
+
+        # FIGURE 1.5: histogram errors(r) - all errors by z
+        for i, bin_r in enumerate(dfb.bin.unique()):
+            dfbr = dfb[dfb['bin'] == bin_r]
+            dfbr = dfbr.sort_values('z_true')
+            bin_id = int(np.round(bin_r * microns_per_pixels, 0))
+
+            x = dfbr.z_true.to_numpy()
+            y = dfbr[error_column].to_numpy()
+
+            plotting.scatter_and_kde_y(x, y, binwidth_y=0.5, kde=True, bandwidth_y=0.5, scatter_size=0.25,
+                                       figsize_scale=(1, 0.5),
+                                       color=sci_color_cycle[i], colormap=None,
+                                       save_path=path_results + '/rbin{}_z-errors_scatter-kde.svg'.format(bin_id),
+                                       show_plot=True)
+
+        # ---
+
+        # FIGURE 2: bin(r) - all errors by z_true & fit quadratic
+
         # plot
-        fig, ax = plt.subplots(nrows=bins_r, sharex=True, figsize=(size_x_inches, size_y_inches * bins_r / 2.4))
+        fig, ax = plt.subplots(nrows=bins_r, sharex=True,
+                               figsize=(size_x_inches, size_y_inches * bins_r / 2.4))
         popts_r = []
         lbls_r = []
 
@@ -1102,12 +1846,12 @@ def plot_error_analysis(dft, path_figs, path_results):
             dfbr = dfbr.sort_values('z_true')
 
             # formatting
-            bin_id = int(np.round(bin_r, 0))
-            lbl_bin = r'$r_{bin}=$' + '{}'.format(bin_id)
+            bin_id = int(np.round(bin_r * microns_per_pixels, 0))
+            lbl_bin = r'$r=$' + '{} '.format(bin_id) + r'$\mu m$'
             lbls_r.append(bin_id)
 
             # data
-            sc, = ax[i].plot(dfbr.z_true, dfbr.error,
+            sc, = ax[i].plot(dfbr.z_true, dfbr[error_column],
                              marker='o',
                              ms=0.5,
                              linestyle='',
@@ -1116,7 +1860,7 @@ def plot_error_analysis(dft, path_figs, path_results):
                              label=lbl_bin)
 
             # fit quadratic
-            popt, pcov = curve_fit(functions.quadratic, dfbr.z_true, dfbr.error)
+            popt, pcov = curve_fit(functions.quadratic, dfbr.z_true, dfbr[error_column])
             popts_r.append(popt)
             lbl_quadratic = r'Fit: {}'.format(np.round(popt[0], 4)) + r'$x^2$' + \
                             r' + {}'.format(np.round(popt[1], 4)) + r'$x$' + \
@@ -1130,15 +1874,15 @@ def plot_error_analysis(dft, path_figs, path_results):
             # label each figure
             ax[i].set_ylim(yerr_lims)
             ax[i].set_yticks(ticks=yerr_ticks, labels=yerr_ticks)
-            ax[i].legend(loc='upper right')
+            ax[i].legend(markerscale=4, handletextpad=0.05)
 
-        ax[bins_r - 1].set_xlabel(r'$z_{true} \: (\mu m)$')
+        ax[bins_r - 1].set_xlabel(r'$z \: (\mu m)$')
         ax[bins_r - 1].set_xlim(xlim)
         ax[bins_r - 1].set_xticks(ticks=xyticks, labels=xyticks)
-        ax[int(np.floor(bins_r / 2))].set_ylabel(r'$\epsilon_{z} \: (\mu m)$')
+        ax[int(np.floor(bins_r / 2))].set_ylabel(r'$\epsilon_{z}^{\delta} \: (\mu m)$')
 
         plt.savefig(
-            path_figs + '/bin-r_normalized-z-errors_by_z_and_fit-quadratic_errlim{}.png'.format(error_threshold))
+            path_results + '/bin-r_normalized-z-errors_by_z_and_fit-quadratic_errlim{}.svg'.format(error_threshold))
         plt.tight_layout()
         plt.show()
         plt.close()
@@ -1159,16 +1903,17 @@ def plot_error_analysis(dft, path_figs, path_results):
                     color=sci_color_cycle[i],
                     label=lbls_r[i])
 
-        ax.set_xlabel(r'$z_{true} \: (\mu m)$')
+        ax.set_xlabel(r'$z \: (\mu m)$')
         ax.set_xlim(xlim)
         ax.set_xticks(ticks=xyticks, labels=xyticks)
-        ax.set_ylabel(r'$\epsilon_{z} \: (\mu m)$')
-        ax.set_ylim(yerr_lims)
-        ax.set_yticks(ticks=yerr_ticks, labels=yerr_ticks)
-        ax.legend(loc='upper right')
+        ax.set_ylabel(r'$\epsilon_{z}^{\delta} \: (\mu m)$')
+        # ax.set_ylim([-2.85, 2.85])
+        # ax.set_yticks(ticks=[-2, -1, 0, 1, 2])
+        ax.legend(title=r'$r \: (\mu m)$',
+                  handlelength=1, labelspacing=0.25, borderpad=0.3, handletextpad=0.5, borderaxespad=0.4)
 
         plt.savefig(
-            path_figs + '/bin-r_normalized-z-errors_by_z_fit-quadratic_errlim{}.png'.format(error_threshold))
+            path_results + '/bin-r_normalized-z-errors_by_z_fit-quadratic_errlim{}.svg'.format(error_threshold))
         plt.tight_layout()
         plt.show()
         plt.close()
@@ -1181,7 +1926,7 @@ def plot_error_analysis(dft, path_figs, path_results):
         dfm, dfstd = bin.bin_generic(df_error,
                                      column_to_bin,
                                      column_to_count,
-                                     bins_r,
+                                     bin_local_r,
                                      round_to_decimal,
                                      return_groupby)
 
@@ -1189,13 +1934,15 @@ def plot_error_analysis(dft, path_figs, path_results):
         dfstd = dfstd.sort_values('bin')
 
         fig, ax = plt.subplots()
-        ax.errorbar(dfm.bin, dfm.error, yerr=dfstd.error, fmt='-o', elinewidth=1, capsize=2)
-        ax.set_xlabel(r'$r_{bin} \: (\mu m)$')
-        ax.set_xlim([-10, 350])
-        ax.set_xticks(ticks=[0, 100, 200, 300])
-        ax.set_ylabel(r'$\epsilon_{z} \: (\mu m)$')
+        ax.errorbar(dfm.bin * microns_per_pixels, dfm[error_column], yerr=dfstd[error_column], fmt='-o', elinewidth=1, capsize=2)
+        ax.set_xlabel(r'$r \: (\mu m)$')
+        ax.set_xlim([-10, 350 * microns_per_pixels])
+        ax.set_xticks(ticks=[0, 150, 300, 450])
+        ax.set_ylabel(r'$\epsilon_{z}^{\delta} \: (\mu m)$')
+        # ax.set_ylim([-3.25, 1.85])
+        # ax.set_yticks([-3, -2, -1, 0, 1])
         plt.savefig(
-            path_figs + '/bin-r_normalized-z-errors_by_z_mean+std_errlim{}.png'.format(error_threshold))
+            path_results + '/bin-r_normalized-z-errors_by_z_mean+std_errlim{}_fix-ylim.svg'.format(error_threshold))
         plt.tight_layout()
         plt.show()
         plt.close()
@@ -1211,12 +1958,17 @@ def plot_error_analysis(dft, path_figs, path_results):
     plot_fit = False
 
     if fig_5:
+
+        # setup
         columns_to_bin = ['r', 'z_true']
         column_to_count = 'id'
-        bins = [bins_r, bins_z]
+        bins = [bin_local_r, bins_z]
         round_to_decimals = [1, 3]
-        min_num_bin = 10
+        min_num_bin = 5
         return_groupby = True
+
+        # add columns
+        df_error['error_squared_spec'] = df_error[error_column] ** 2
 
         dfm, dfstd = bin.bin_generic_2d(df_error,
                                         columns_to_bin,
@@ -1226,6 +1978,11 @@ def plot_error_analysis(dft, path_figs, path_results):
                                         min_num_bin,
                                         return_groupby
                                         )
+
+        dfm['rmse_z_spec'] = np.sqrt(dfm['error_squared_spec'])
+
+        dfm.to_excel(path_results + '/dataframe-mean_bin-r-z_norm-z-errors_by_z_errlim{}.xlsx'.format(error_threshold))
+        dfstd.to_excel(path_results + '/dataframe-std_bin-r-z_norm-z-errors_by_z_errlim{}.xlsx'.format(error_threshold))
 
         # resolve floating point bin selecting
         dfm = dfm.round({'bin_tl': 0, 'bin_ll': 2})
@@ -1242,8 +1999,10 @@ def plot_error_analysis(dft, path_figs, path_results):
             dfbr_std = dfstd[dfstd['bin_tl'] == bin_r]
 
             # scatter: mean +/- std
-            ax.errorbar(dfbr.bin_ll, dfbr.error, yerr=dfbr_std.error,
-                        fmt='-o', ms=2, elinewidth=0.5, capsize=1, label=int(np.round(bin_r, 0)))
+            ax.errorbar(dfbr.bin_ll, dfbr[error_column], yerr=dfbr_std[error_column],
+                        fmt='-o', ms=2, elinewidth=0.5, capsize=1,
+                        label=int(np.round(bin_r * microns_per_pixels, 0))
+                        )
 
             # plot: fit
             if plot_fit:
@@ -1253,23 +2012,367 @@ def plot_error_analysis(dft, path_figs, path_results):
                         color=lighten_color(sci_color_cycle[i], amount=1.25),
                         )
 
-        ax.set_xlabel(r'$z_{true} \: (\mu m)$')
+        ax.set_xlabel(r'$z \: (\mu m)$')
         ax.set_xlim(xlim)
         ax.set_xticks(ticks=xyticks, labels=xyticks)
         ax.set_ylabel(r'$\epsilon_{z} \: (\mu m)$')
-        ax.set_ylim(yerr_lims)
-        ax.set_yticks(ticks=yerr_ticks, labels=yerr_ticks)
-        ax.legend(loc='upper right', title=r'$r_{bin}$',
-                  borderpad=0.2, handletextpad=0.6, borderaxespad=0.25, markerscale=0.75)
+        # ax.set_ylim(yerr_lims)
+        # ax.set_yticks(ticks=yerr_ticks, labels=yerr_ticks)
+        ax.legend(loc='upper center', ncol=5, handlelength=1, columnspacing=0.85,
+                  borderpad=0.2, handletextpad=0.6, borderaxespad=0.5, markerscale=0.75)
 
         plt.savefig(
-            path_figs + '/bin-r-z_normalized-z-errors_by_z_and_fit-quadratic_errlim{}.png'.format(error_threshold))
+            path_results + '/bin-r-z_normalized-z-errors_by_z_errlim{}.svg'.format(error_threshold))
         plt.tight_layout()
         plt.show()
         plt.close()
 
 
 # ---------------------------------------------- HELPER FUNCTIONS ------------------------------------------------------
+
+
+def evaluate_particles_intensity_and_diameter(base_dir, mag_eff, working_distance_mm, microns_per_pixel,
+                                              plot_particle_ids=None,
+                                              plot_all_intensity=False,
+                                              plot_sampling_frequency=None,
+                                              path_test_coords_sampling_frequency=None,
+                                              ):
+    """
+    NOTE: see script 'publication/plot_particle_diameter_and_intensity.py' for original code and application.
+
+    :param path_test_coords_sampling_frequency:
+    :param base_dir:
+    :param mag_eff:
+    :param working_distance_mm:
+    :param microns_per_pixel:
+    :param plot_particle_ids: 'all': plot all particles, [list]: plot particle IDs, 'None': skip
+    :param plot_all_intensity:
+    :param plot_sampling_frequency: input the number of particles assessed by IDPT to compare SPCT sampling.
+    :return:
+    """
+
+    # setup filepaths
+    path_calib_coords = join(base_dir, 'coords/calib-coords')
+    path_figs = join(base_dir, 'figs')
+
+    path_spct_stats = [join(path_calib_coords, f) for f in listdir(path_calib_coords) if f.startswith('calib_spct_stats_')][0]
+
+
+    # read spct stats
+    dfraw = pd.read_excel(path_spct_stats)
+    dfraw = dfraw.dropna()
+
+    # filter on number of frames
+    dfcounts = dfraw.groupby('id').count().reset_index()
+    max_counts = dfcounts.z_corr.max()
+    remove_ids = dfcounts[dfcounts['z_corr'] < max_counts * 0.75].id.unique()
+    df = dfraw[~dfraw.id.isin(remove_ids)]
+
+    df = df.sort_values('id')
+    pids = df.id.unique()
+
+    # modifiers
+    plots_per_fig = 10
+
+    if plot_all_intensity:
+
+        plt.style.use(['science', 'ieee', 'muted'])
+
+        # create directory
+        path_particle_intensities = join(path_figs, 'particle_intensity_plots')
+        if not os.path.exists(path_particle_intensities):
+            os.makedirs(path_particle_intensities)
+
+        # structure data
+        num_figs = int(np.ceil(len(pids) / plots_per_fig))
+
+        for i in range(num_figs):
+
+            fig, ax = plt.subplots(figsize=(size_x_inches * 1.125, size_y_inches * 1.125))
+
+            for j in pids[i * plots_per_fig:(i + 1) * plots_per_fig]:
+
+                dfpid = dfraw[dfraw['id'] == j]
+                dfpid = dfpid.reset_index()
+                zf = np.round(dfpid.iloc[dfpid.peak_int.idxmax()].z_corr, 2)
+                ax.plot(dfpid.z_corr, dfpid.peak_int, '-o', ms=3, label='{}: {}'.format(j, zf))
+
+            ax.legend(title=r'$p_{ID}: z_{f}$')
+            plt.tight_layout()
+            plt.savefig(path_particle_intensities + '/particles_{}_intensities.png'.format(i))
+            plt.show()
+            plt.close()
+
+    if plot_particle_ids is not None:
+
+        plt.style.use(['science', 'ieee', 'std-colors'])
+
+        # create directory
+        path_particle_diameter_and_intensities = join(path_figs, 'particle_diameter_and_intensity_plots')
+        if not os.path.exists(path_particle_diameter_and_intensities):
+            os.makedirs(path_particle_diameter_and_intensities)
+
+        path_particle_diameter_x_and_y = join(path_figs, 'particle_diameter_x_and_y_plots')
+        if not os.path.exists(path_particle_diameter_x_and_y):
+            os.makedirs(path_particle_diameter_x_and_y)
+
+        path_particle_sigma_x_and_y = join(path_figs, 'particle_sigma_x_and_y_plots')
+        if not os.path.exists(path_particle_sigma_x_and_y):
+            os.makedirs(path_particle_sigma_x_and_y)
+
+        if plot_particle_ids == 'all':
+            plot_particle_ids = pids
+
+        s0 = working_distance_mm * 1e3
+
+        for pid in plot_particle_ids:
+
+            df = dfraw[dfraw['id'] == pid]
+
+            z_corr = df.z_corr.to_numpy()
+            peak_int_norm = df.peak_int.to_numpy() - df.peak_int.min()
+
+            raw_amplitude, raw_c, raw_sigma = functions.get_amplitude_center_sigma(z_corr, peak_int_norm)
+
+            guess_params = [raw_amplitude, raw_c, raw_sigma]
+
+            popt, pcov = curve_fit(fit.gauss_1d_function, z_corr, peak_int_norm, p0=guess_params)
+            fit_amplitude, fit_xc, fit_sigma = popt[0], popt[1], popt[2]
+
+            # constrain the z range by Gaussian sigma
+            z_range = fit_sigma * 5
+            df = df[(df['z_corr'] > -z_range) & (df['z_corr'] < z_range)]
+
+            # center on z_f = 0
+            df['z_corr'] = df['z_corr'] - fit_xc
+
+            # --- fit diameter function
+            z_corr = df.z_corr.to_numpy()
+            peak_int_norm = df.peak_int.to_numpy() - df.peak_int.min()
+            gauss_diameter = df.gauss_diameter.to_numpy()
+            gauss_dia_x = df.gauss_dia_x.to_numpy()
+            gauss_dia_y = df.gauss_dia_y.to_numpy()
+
+            def particle_diameter_function(z, c1, c2):
+                return mag_eff * np.sqrt(c1 ** 2 * z ** 2 + c2 ** 2)
+
+            guess_c1, guess_c2 = 0.15, 0.65
+
+            poptxy, pcovxy = curve_fit(particle_diameter_function,
+                                       z_corr,
+                                       gauss_diameter,
+                                       p0=[guess_c1, guess_c2],
+                                       bounds=([0, 0], [1, 1])
+                                       )
+
+            poptx, pcovx = curve_fit(particle_diameter_function,
+                                     z_corr,
+                                     gauss_dia_x,
+                                     p0=[guess_c1, guess_c2],
+                                     bounds=([0, 0], [1, 1])
+                                     )
+
+            popty, pcovy = curve_fit(particle_diameter_function,
+                                     z_corr,
+                                     gauss_dia_y,
+                                     p0=[guess_c1, guess_c2],
+                                     bounds=([0, 0], [1, 1])
+                                     )
+
+            def gaussian_particle_intensity_distribution_2d(data, a):
+                z = data[0]
+                diameter = data[1]
+                return a / (diameter ** 2 * (s0 + z) ** 2)
+
+            z_corr = df.z_corr.to_numpy()
+            peak_int_norm = df.peak_int.to_numpy() - df.peak_int.min()
+            gauss_diameter = df.gauss_diameter.to_numpy()
+
+            # fit 2D Gaussian distribution: function(z, r)
+            data = [z_corr * 1e-6, gauss_diameter * 1e-6 * microns_per_pixel]
+            poptj, pcovj = curve_fit(gaussian_particle_intensity_distribution_2d, data, peak_int_norm)
+
+            # fit z
+            z_fit_intensity = np.linspace(z_corr.min(), z_corr.max(), 250) * 1e-6
+            resampled_diameter = particle_diameter_function(z_fit_intensity * 1e6, *poptxy)
+            data_fit = [z_fit_intensity, resampled_diameter * 1e-6 * microns_per_pixel]
+
+            # plot - diameter + intensity
+            fig, ax = plt.subplots()
+
+            ax.plot(z_corr, gauss_diameter * microns_per_pixel, 'o', ms=2, color=sciblue, fillstyle='none')
+            ax.plot(z_fit_intensity * 1e6, resampled_diameter * microns_per_pixel, linewidth=0.5, color='midnightblue')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$d_{e} \: (\mu m)$')
+
+            axr = ax.twinx()
+            axr.plot(z_corr, peak_int_norm, 's', ms=2, color='darkgray', fillstyle='none')
+            axr.plot(z_fit_intensity * 1e6, gaussian_particle_intensity_distribution_2d(data_fit, *poptj),
+                     linewidth=0.5, color='dimgray')
+            axr.set_ylabel(r'$I_{max} \: (A.U.)$', color='gray')
+            plt.tight_layout()
+            plt.savefig(path_particle_diameter_and_intensities + '/pid{}_diameter_and_intensity.png'.format(pid))
+            plt.close()
+
+            # plot - diameter x + diameter y
+
+            gauss_dia_x = df.gauss_dia_x.to_numpy()
+            resampled_dia_x = particle_diameter_function(z_fit_intensity * 1e6, *poptx)
+
+            gauss_dia_y = df.gauss_dia_y.to_numpy()
+            resampled_dia_y = particle_diameter_function(z_fit_intensity * 1e6, *popty)
+
+            # plot
+            fig, ax = plt.subplots()
+
+            ax.plot(z_corr, gauss_dia_x * microns_per_pixel,
+                    'o', ms=2, color=sciblue, fillstyle='none', label=r'$a_{x}$')
+            ax.plot(z_fit_intensity * 1e6, resampled_dia_x * microns_per_pixel, linewidth=0.5, color='tab:blue')
+
+            ax.plot(z_corr, gauss_dia_y * microns_per_pixel,
+                    's', ms=2, color=scigreen, fillstyle='none', label=r'$a_{y}$')
+            ax.plot(z_fit_intensity * 1e6, resampled_dia_y * microns_per_pixel, linewidth=0.5, color='tab:green')
+
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$a \: (\mu m)$')
+            ax.legend(loc='lower left')
+            plt.tight_layout()
+            plt.savefig(path_particle_diameter_x_and_y + '/pid{}_diameter_x_and_y.png'.format(pid))
+            plt.close()
+
+            # plot - diameter x / diameter y
+
+            fig, ax = plt.subplots()
+            ax.plot(z_corr, df.gauss_dia_x_y.to_numpy(), 'o', ms=2)
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$a_{x}/a_{y}$')
+            plt.tight_layout()
+            plt.savefig(path_particle_diameter_x_and_y + '/pid{}_diameter_x_y.png'.format(pid))
+            plt.close()
+
+            # plot - sigma x + sigma y
+
+            gauss_sigma_x = df.gauss_sigma_x.to_numpy()
+            gauss_sigma_y = df.gauss_sigma_y.to_numpy()
+            fig, ax = plt.subplots()
+            ax.plot(z_corr, gauss_sigma_x, 'o', ms=2, color=sciblue, fillstyle='none', label=r'$\sigma_{x}$')
+            ax.plot(z_corr, gauss_sigma_y, 's', ms=2, color=scigreen, fillstyle='none', label=r'$\sigma_{y}$')
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$a \: (pixels)$')
+            ax.legend(loc='lower left')
+            plt.tight_layout()
+            plt.savefig(path_particle_sigma_x_and_y + '/pid{}_sigma_x_and_y.png'.format(pid))
+            plt.close()
+
+            # plot - sigma x + sigma y
+            fig, ax = plt.subplots()
+            ax.plot(z_corr, df.gauss_sigma_x_y.to_numpy(), '-o', ms=2)
+            ax.set_xlabel(r'$z \: (\mu m)$')
+            ax.set_ylabel(r'$a_{x}/a_{y}$')
+            plt.tight_layout()
+            plt.savefig(path_particle_sigma_x_and_y + '/pid{}_sigma_x_y.png'.format(pid))
+            plt.close()
+
+    if plot_sampling_frequency is not None:
+
+        path_sampling_frequency = join(path_figs, 'compare_sampling_frequency')
+        if not os.path.exists(path_sampling_frequency):
+            os.makedirs(path_sampling_frequency)
+
+        # --- SPCT Nyquist sampling
+
+        # read test coords to get number of particles per frame (z_true)
+        dft_spct = pd.read_excel(path_test_coords_sampling_frequency)
+        dft_spct = dft_spct[dft_spct['cm'] > 0.5]
+        spct_num_per_z_true = dft_spct.groupby('frame').count().z.to_numpy()
+
+        # calculate mean particle spacing and Nyquist sampling (z)
+        arr_spct_mean_particle_to_particle_spacing = np.sqrt((512 * microns_per_pixel) ** 2 / spct_num_per_z_true)
+        arr_spct_nyquist_measured = arr_spct_mean_particle_to_particle_spacing * 2
+
+        # bin spct_stats by z_corr to get corrected z values and gaussian diameter
+        column_to_bin = 'z_corr'
+        column_to_count = 'id'
+        bins = len(dfraw.frame.unique())
+        round_to_decimal = 4
+        dfzm, dfzstd = bin.bin_generic(dfraw, column_to_bin, column_to_count, bins, round_to_decimal)
+
+        # SPCT Nyquist minimum w/o overlap
+        spct_nyquist_no_gaussian_overlap = dfzm.gauss_diameter.to_numpy() * 2
+        spct_nyquist_no_contour_overlap = dfzm.diameter_contour.to_numpy() * 2
+
+        # IDPT Nyquist sampling
+        square_microns_per_particle = (512 * microns_per_pixel) ** 2 / plot_sampling_frequency
+        mean_particle_to_particle_spacing = np.sqrt(square_microns_per_particle)
+        idpt_nyquist = mean_particle_to_particle_spacing * 2 * np.ones_like(dfzm.z_corr)
+
+        # plot
+        ms = 2
+
+        # measured IDPT vs. SPCT Nyquist sampling
+        fig, ax = plt.subplots()
+
+        ax.plot(dfzm.z_corr, idpt_nyquist, '-o', ms=ms, label=r'$IDPT$')
+        ax.plot(dfzm.z_corr, arr_spct_nyquist_measured, '-o', ms=ms, label=r'$SPCT$')
+
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel(r'$f_{Nyquist} \: (\mu m)$')
+        ax.set_ylim([0, arr_spct_nyquist_measured.max() * 1.05])
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(path_sampling_frequency + '/compare_IDPT-SPCT_Nyq_sampling.png')
+        plt.show()
+        plt.close()
+
+        # measured IDPT vs. SPCT Nyquist sampling + ideal Gaussian and contour
+        fig, ax = plt.subplots()
+
+        ax.plot(dfzm.z_corr, idpt_nyquist, '-o', ms=ms, label=r'$IDPT$')
+        ax.plot(dfzm.z_corr, arr_spct_nyquist_measured, '-o', ms=ms, label=r'$SPCT$')
+        ax.plot(dfzm.z_corr, spct_nyquist_no_gaussian_overlap, '-o', ms=ms, label=r'$SPCT_{N.O.}(Gaussian)$')
+        ax.plot(dfzm.z_corr, spct_nyquist_no_contour_overlap, '-o', ms=ms, label=r'$SPCT_{N.O.}(contour)$')
+
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel(r'$f_{Nyquist} \: (\mu m)$')
+        ax.set_ylim([0, arr_spct_nyquist_measured.max() * 1.05])
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(path_sampling_frequency + '/compare_IDPT-SPCT_Nyq_sampling_gauss-contour-dia.png')
+        plt.show()
+        plt.close()
+
+        # measured IDPT vs. SPCT Nyquist sampling + ideal contour
+        fig, ax = plt.subplots()
+
+        ax.plot(dfzm.z_corr, idpt_nyquist, '-o', ms=ms, label=r'$IDPT$')
+        ax.plot(dfzm.z_corr, arr_spct_nyquist_measured, '-o', ms=ms, label=r'$SPCT$')
+        ax.plot(dfzm.z_corr, spct_nyquist_no_contour_overlap, '-o', ms=ms, label=r'$SPCT_{N.O.}$')
+
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel(r'$f_{Nyquist} \: (\mu m)$')
+        ax.set_ylim([0, arr_spct_nyquist_measured.max() * 1.05])
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(path_sampling_frequency + '/compare_IDPT-SPCT_Nyq_sampling_contour-dia.png')
+        plt.show()
+        plt.close()
+
+        # measured IDPT vs. SPCT Nyquist sampling + ideal Gaussian
+        fig, ax = plt.subplots()
+
+        ax.plot(dfzm.z_corr, idpt_nyquist, '-o', ms=ms, label=r'$IDPT$')
+        ax.plot(dfzm.z_corr, arr_spct_nyquist_measured, '-o', ms=ms, label=r'$SPCT$')
+        ax.plot(dfzm.z_corr, spct_nyquist_no_gaussian_overlap, '-o', ms=ms, label=r'$SPCT_{N.O.}$')
+
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        ax.set_ylabel(r'$f_{Nyquist} \: (\mu m)$')
+        ax.set_ylim([0, arr_spct_nyquist_measured.max() * 1.05])
+        ax.legend()
+        plt.tight_layout()
+        plt.savefig(path_sampling_frequency + '/compare_IDPT-SPCT_Nyq_sampling_gauss-dia.png')
+        plt.show()
+        plt.close()
+
 
 
 def plot_spct_stats_bin_z(df, column_to_bin, column_to_count, bins, round_to_decimal, save_figs, path_figs, show_figs,
@@ -1299,13 +2402,13 @@ def plot_spct_stats_bin_z(df, column_to_bin, column_to_count, bins, round_to_dec
     # plot
     count_column = 'count_{}'.format(column_to_count)
 
-    plot_columns = ['peak_int', 'snr', 'nsv', 'nsv_signal',
+    plot_columns = ['peak_int', 'snr', 'nsv', 'nsv_signal', 'contour_area', 'contour_diameter',
                     'solidity', 'thinness_ratio', 'gauss_diameter', 'gauss_dia_x_y', 'gauss_sigma_x_y',
                     'min_dx', 'mean_dxo', 'num_dxo', 'percent_dx_diameter']
 
     for pc in plot_columns:
         fig, ax = plt.subplots()
-        ax.errorbar(dfm.bin, dfm[pc], yerr=dfstd[pc], fmt='o', linewidth=2, capsize=6, color='tab:blue',
+        ax.errorbar(dfm.bin, dfm[pc], yerr=dfstd[pc], fmt='o', markersize=3, linewidth=0.5, capsize=1, color='tab:blue',
                     alpha=0.25, label=r'$\mu + \sigma$')
         ax.plot(dfm.bin, dfm[pc], color='tab:blue')
         ax.set_xlabel(r'$z_{corr}$')
@@ -1313,7 +2416,7 @@ def plot_spct_stats_bin_z(df, column_to_bin, column_to_count, bins, round_to_dec
         ax.legend()
 
         axr = ax.twinx()
-        axr.plot(dfm.bin, dfm[count_column], '-o', markersize=2, color='gray', alpha=0.125)
+        axr.plot(dfm.bin, dfm[count_column], '-o', markersize=1, color='gray', alpha=0.125)
         axr.set_ylabel(r'$N_{p} \: (\#)$', color='gray')
         axr.set_ylim([0, int(np.round(dfm[count_column].max() + 6, -1))])
 
@@ -1365,7 +2468,7 @@ def plot_spct_stats_bin_id(df, column_to_count, num_pids, save_figs, path_figs, 
 
     for pc in plot_columns:
         fig, ax = plt.subplots()
-        ax.errorbar(dfm.bin, dfm[pc], yerr=dfstd[pc], fmt='o', linewidth=2, capsize=6, color='tab:blue',
+        ax.errorbar(dfm.bin, dfm[pc], yerr=dfstd[pc], fmt='o', markersize=3, linewidth=0.5, capsize=1, color='tab:blue',
                     alpha=0.25,
                     label=r'$\mu + \sigma$')
         ax.plot(dfm.bin, dfm[pc], color='tab:blue')
@@ -1374,7 +2477,7 @@ def plot_spct_stats_bin_id(df, column_to_count, num_pids, save_figs, path_figs, 
         ax.legend()
 
         axr = ax.twinx()
-        axr.plot(dfm.bin, dfm[count_column], '-o', markersize=2, color='gray', alpha=0.125)
+        axr.plot(dfm.bin, dfm[count_column], '-o', markersize=1, color='gray', alpha=0.125)
         axr.set_ylabel(r'$N_{frames} \: (\#)$', color='gray')
         axr.set_ylim([0, int(np.round(dfm[count_column].max() + 6, -1))])
 
@@ -1581,9 +2684,10 @@ def bin_plot_spct_stats_2d_static_precision_mindx_id(df, column_to_bin, precisio
     # save and/or show plots
     if save_figs or show_figs:
 
-        path_save_figs = path_figs + '/spct-stats_2d-precision_mindx-id'
-        if not os.path.exists(path_save_figs):
-            os.makedirs(path_save_figs)
+        if save_figs:
+            path_save_figs = path_figs + '/spct-stats_2d-precision_mindx-id'
+            if not os.path.exists(path_save_figs):
+                os.makedirs(path_save_figs)
 
         count_column = 'counts'
         if bin_count_threshold is not None:
@@ -1635,9 +2739,10 @@ def bin_plot_spct_stats_2d_static_precision_pdo_id(df, column_to_bin, precision_
     # save and/or show plots
     if save_figs or show_figs:
 
-        path_save_figs = path_figs + '/spct-stats_2d-precision_pdo-id'
-        if not os.path.exists(path_save_figs):
-            os.makedirs(path_save_figs)
+        if save_figs:
+            path_save_figs = path_figs + '/spct-stats_2d-precision_pdo-id'
+            if not os.path.exists(path_save_figs):
+                os.makedirs(path_save_figs)
 
         count_column = 'counts'
         if bin_count_threshold is not None:
@@ -1747,6 +2852,8 @@ def bin_plot_spct_stats_sampling_frequency_z_id(df, column_to_bin, bins, area, m
     # minimum lateral Nyquist sampling
     if 'contour_diameter' in dfzm.columns:
         dfzm['nyquist_min_no_contour_overlap'] = 2 * dfzm.contour_diameter * microns_per_pixel
+    elif 'diameter_contour' in dfzm.columns:
+        dfzm['nyquist_min_no_contour_overlap'] = 2 * dfzm.diameter_contour * microns_per_pixel
 
     if 'gauss_diameter' in dfzm.columns:
         dfzm['nyquist_min_no_overlap'] = 2 * dfzm.gauss_diameter * microns_per_pixel
@@ -1787,11 +2894,13 @@ def bin_plot_spct_stats_sampling_frequency_z_id(df, column_to_bin, bins, area, m
     ax.plot(dfzm.bin, dfzm.nyquist_mean_dx, '-o', markersize=3, label=r'$\overline {\delta x}$')
     ax.plot(dfzm.bin, dfzm.nyquist_min_dx, '-o', markersize=3, label=r'$\delta x_{min}$')
 
-    ax.plot(dfzm.bin, dfzm.nyquist_min_no_overlap, '-o', markersize=3,
-            label=r'$\delta x_{min, N.O.}^{Gaussian}$')
+    if 'nyquist_min_no_contour_overlap' in dfzm.columns:
+        ax.plot(dfzm.bin, dfzm.nyquist_min_no_contour_overlap, '-o', markersize=3,
+                label=r'$\delta x_{min, N.O.}^{Contour}$')
 
-    ax.plot(dfzm.bin, dfzm.nyquist_min_no_contour_overlap, '-o', markersize=3,
-            label=r'$\delta x_{min, N.O.}^{Contour}$')
+    if 'gauss_diameter' in dfzm.columns:
+        ax.plot(dfzm.bin, dfzm.nyquist_min_no_overlap, '-o', markersize=3,
+                label=r'$\delta x_{min, N.O.}^{Gaussian}$')
 
     ax.set_xlabel(r'$z \: (\mu m)$')
     ax.set_ylabel(r'$f_{Nyquist} \: (\mu m)$')
@@ -2069,3 +3178,7 @@ def plot_spct_stats_compare_ids_by_along_param(df, columns_to_bin, bins, low_lev
         plt.show()
 
     plt.close(fig)
+
+    # ---
+
+# ---

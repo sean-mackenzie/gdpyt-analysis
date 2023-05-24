@@ -11,6 +11,37 @@ from utils import bin, io
 
 # scripts
 
+# ----------------------------------------------------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+
+def map_column_between_dataframes(map_to_df, map_to_col, map_on_col, mapping_df, mapping_col):
+
+    # 1. create column to map onto
+    map_to_df[map_to_col] = map_to_df[map_on_col]
+
+    # 2. create mapping dictionary
+    mapper_dict = mapping_df[[map_on_col, mapping_col]].set_index(map_on_col).to_dict()
+
+    # 3. map
+    map_to_df = map_to_df.replace({map_to_col: mapper_dict[mapping_col]})
+
+    return map_to_df
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+# -
+
+# -------------------------------------- EVERYTHING BELOW IS PRETTY OLD ------------------------------------------------
+
+# -
+
+# -
+
+# ----------------------------------------------------------------------------------------------------------------------
+
 # ---------------------------------   DICTIONARIES (below)  ------------------------------------------------------------
 
 
@@ -162,7 +193,10 @@ def stack_dficts_by_key(dficts, drop_filename=False):
         dfc = df.copy()
 
         if not drop_filename:
-            dfc.insert(0, 'filename', name)
+            if 'filename' in dfc.columns:
+                dfc.insert(0, 'dict_key', name)
+            else:
+                dfc.insert(0, 'filename', name)
 
         dfs.append(dfc)
 
@@ -289,7 +323,7 @@ def split_dficts_cumulative_series(dficts, dficts_ground_truth, series_parameter
 # ---------------------------------   DATAFRAMES (below)  --------------------------------------------------------------
 
 
-def split_df_and_merge_dficts(df, keys, column_to_split, splits, round_to_decimal=0):
+def split_df_and_merge_dficts(df, keys, column_to_split, splits, round_to_decimal=0, min_length=0):
     """
     Split a dataframe by column 'column_to_split' along values 'splits' and merge into a single dictionary.
 
@@ -298,6 +332,7 @@ def split_df_and_merge_dficts(df, keys, column_to_split, splits, round_to_decima
     :param column_to_split:
     :param splits:
     :param round_to_decimal:
+    :param min_length:
     :return:
     """
 
@@ -312,8 +347,13 @@ def split_df_and_merge_dficts(df, keys, column_to_split, splits, round_to_decima
         df_subset = dfc[dfc['bin'] == split].copy()
         df_subset = df_subset.drop(columns='bin')
 
-        ks.append(key)
-        vs.append(df_subset)
+        if len(df_subset) > min_length:
+            ks.append(key)
+            vs.append(df_subset)
+        else:
+            print("Dropped {} because {} rows is less than {} minimum length filter.".format(key,
+                                                                                             len(df_subset),
+                                                                                             min_length))
 
     sorted_by_keys = sorted(list(zip(ks, vs)), key=lambda x: x[0])
 
@@ -415,16 +455,24 @@ def map_values_on_frame_id(dfs, dft):
     return dfs
 
 
-def map_adjacent_z_true(df, df_ground_truth, threshold):
+def map_adjacent_z_true(df, df_ground_truth, dfsettings, threshold, single_column_x=None, single_column_dx=None):
     """
     Map 'z_adj' and 'dz' values to test_coords using NearestNeighbors.
         * 'z_adj' == the z_true value of the adjacent (overlapping) particle.
         * 'dz' == the difference in z (depth) between the two adjacent particles.
 
     :param df: the raw test_coords output from IDPT analysis.
-    :param threshold: for standard dz dataset: threshold = 46
+    :param df_ground_truth:
+    :param dfsettings: used to scale dx by microns-per-pixels to calculate theta.
+    :param threshold: for standard dz dataset: threshold = 30
+    :param single_column_x: the specified "dx" for the single, isolated particle
     :return:
     """
+
+    # get microns-per-pixels
+    microns_per_pixels = float(dfsettings['microns_per_pixel'])
+    if microns_per_pixels < 0.1:
+        microns_per_pixels = microns_per_pixels * 1e6
 
     # drop NaNs
     df = df.dropna()
@@ -435,16 +483,24 @@ def map_adjacent_z_true(df, df_ground_truth, threshold):
     # get this frame only
     for fr in df.frame.unique():
 
+        # get ground truth
+        ground_truth_baseline = df_ground_truth[df_ground_truth['filename'] == fr]
+        ground_truth_baseline = ground_truth_baseline.sort_values(['y', 'x'])
+        ground_truth_xy = ground_truth_baseline[['x', 'y']].values
+
         # get this frame only
         dff = df[df['frame'] == fr]
 
         # test: get ID's and coords
-        dff = dff.sort_values('id')
+        dff = dff.sort_values(['y', 'x'])
         coords_ids = dff['id'].values
         coords_xy = dff[['x', 'y']].values
 
+        if len(ground_truth_xy) < 100:
+            print("Frame: {}, ground truth length: {}".format(fr, len(ground_truth_xy)))
+
         # perform NearestNeighbors
-        nneigh = NearestNeighbors(n_neighbors=2, algorithm='ball_tree').fit(coords_xy)
+        nneigh = NearestNeighbors(n_neighbors=2, algorithm='ball_tree').fit(ground_truth_xy)
         distances, indices = nneigh.kneighbors(np.array(coords_xy))
 
         # get only 2nd column
@@ -455,45 +511,25 @@ def map_adjacent_z_true(df, df_ground_truth, threshold):
 
         # Part 1: map 'z_adj' to all segmented particles (i.e. dx > 7.5)
 
+        # create columns to fill
+        dff['z_adj'] = 0
+        dff['x_adj'] = 0
+
         # create the mapping of adjacent particle ID's to particle ID's
-        mapping_dict = {}
         cids_not_mapped = []
 
         for distance, idx, cid in zip(distances, indices, coords_ids):
             if distance < threshold:
-                mapping_dict.update({cid: dff.id.values[idx.squeeze()]})
+                dff.loc[dff['id'] == cid, 'z_adj'] = ground_truth_baseline.iloc[idx].z
+                dff.loc[dff['id'] == cid, 'x_adj'] = ground_truth_baseline.iloc[idx].x
             else:
                 cids_not_mapped.append([cid, distance, idx])
 
-        # Part 2: map 'z_adj' to non-segmented particles (i.e. dx = 7.5)
-        """
-        UNDER DEVELOPMENT: 
-        
-        # ground truth:
-        dft = df_ground_truth[df_ground_truth['filename'] == fr]
-        dft = dft[dft['x'] < 120]
-        
-        for y_pair in dft.y.unique():
-            dfty = dft[dft['y'] == y_pair]
-            y_pair_z_adj = dfty.iloc[1].z - dfty.iloc[0].z
-        true_coords_xy = dft[['x', 'y']].values
-        """
-
-        # create column to map to
-        dff['z_adj'] = dff['id']
-        dff['x_adj'] = dff['id']
-
-        # map adjacent particle ID to particle ID
-        dff['z_adj'] = dff['z_adj'].map(mapping_dict)
-        dff['x_adj'] = dff['x_adj'].map(mapping_dict)
-
-        # map z_true value to adjacent particle ID
-        mapping_dict_z_adjacent = {i: z for (i, z) in zip(dff.id.values, dff.z_true.values)}
-        dff['z_adj'] = dff['z_adj'].map(mapping_dict_z_adjacent)
-
-        # map x_adjacent value to adjacent particle ID
-        mapping_dict_x_adjacent = {i: x for (i, x) in zip(dff.id.values, dff.x.values)}
-        dff['x_adj'] = dff['x_adj'].map(mapping_dict_x_adjacent)
+        # Part 2: if single column is present
+        if single_column_x is not None:
+            df_single = dff[dff['x'] < single_column_x][['z_true', 'x']]
+            dff.loc[dff['x'] < single_column_x, 'z_adj'] = df_single['z_true']
+            dff.loc[dff['x'] < single_column_x, 'x_adj'] = df_single['x'] - single_column_dx
 
         # append to list
         dfs.append(dff)
@@ -502,15 +538,26 @@ def map_adjacent_z_true(df, df_ground_truth, threshold):
     df_z_adj = pd.concat(dfs)
 
     # add 'dz' column
-    df_z_adj['dz'] = df_z_adj.z_adj - df_z_adj.z_true
+    df_z_adj['dz'] = df_z_adj.z_true - df_z_adj.z_adj
 
     # add 'dx' column
-    df_z_adj['dx'] = df_z_adj.x_adj - df_z_adj.x
+    df_z_adj['dx'] = df_z_adj.x - df_z_adj.x_adj
 
     # add 'theta' column
-    df_z_adj['theta'] = np.rad2deg(np.arctan(df_z_adj['dz'] / df_z_adj['dx']))
+    df_z_adj['theta'] = np.rad2deg(np.arctan(df_z_adj['dz'] / (df_z_adj['dx'] * microns_per_pixels)))
+    df_z_adj['theta'] = df_z_adj['theta'].fillna(0)
 
     df_z_adj = df_z_adj.sort_values('frame')
+
+    # discard any rows that weren't matched appropriately
+    # NOTES: this may be a stickier problem (for the future) but for right now, a distance filter seems to work.
+    i_len = len(df_z_adj)
+    df_z_adj = df_z_adj[df_z_adj['dx'].abs() < np.max([single_column_dx, threshold]) + 1]
+    if len(df_z_adj) < i_len:
+        print("{} rows removed by this odd filter. Need to investigate this more.".format(i_len - len(df_z_adj)))
+
+    # print length of particles that were not matched
+    print("{} rows not mapped (i.e., cids_not_mapped)".format(len(cids_not_mapped)))
 
     return df_z_adj
 
@@ -539,11 +586,16 @@ def merge_calib_pid_defocus_and_correction_coords(path_calib_coords, method, dfs
         else:
             raise ValueError('Either dfcstats or dfc (calibration correction coords) must be readable.')
 
+    # add an 'r' column
+    if 'r' not in dfxy.columns:
+        dfxy['r'] = np.sqrt((dfxy.x - 256) ** 2 + (dfxy.y - 256) ** 2)
+        print("!!!! WARNING: 'r' column assumes that image center is at (256, 256) !!!!")
+
     # per-particle coords
     dfcpid = dfcpid.set_index('id')
 
     # merge
-    dfcpidxy = pd.concat([dfxy[['x', 'y']], dfcpid], axis=1, join='inner').reset_index()
+    dfcpidxy = pd.concat([dfxy[['x', 'y', 'r']], dfcpid], axis=1, join='inner').reset_index()
     dfcpidxy.to_excel(path_calib_coords + '/calib_{}_pid_defocus_stats_xy.xlsx'.format(method), index=False)
 
     return dfcpidxy

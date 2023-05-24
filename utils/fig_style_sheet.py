@@ -1,4 +1,25 @@
+# fig style sheet
 
+# HOW TO MAKE DIFFERENT SUB PLOT ARRANGEMENTS
+
+"""
+1. Normal left axis and right axis split into a top and bottom
+
+fig = plt.figure(constrained_layout=True, figsize=(size_x_inches * 2, size_y_inches))
+gs = GridSpec(1, 2, figure=fig)  # create a 1x2 grid of axes
+gsr = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[1])  # split the right axis into a top and bottom
+
+ax = fig.add_subplot(gs[0, 0])  # left axis
+axrr = fig.add_subplot(gsr[0, 0])  # right top axis
+axr = fig.add_subplot(gsr[1, 0])  # right bottom axis
+
+# ---
+
+2. Adjusting the width/height ratios between subplots
+
+fig, ax = plt.subplots(ncols=2, sharey=True, gridspec_kw={'width_ratios': [1, 1.2]})
+
+"""
 
 
 ## ***************************************************************************
