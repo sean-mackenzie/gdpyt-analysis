@@ -8,6 +8,7 @@ from scipy import interpolate
 
 import analyze
 from correction.correct import correct_z_by_xy_surface, correct_z_by_spline
+from correction import correct
 from utils import plot_collections, bin, modify, plotting, fit, functions
 
 from mpl_toolkits.mplot3d import Axes3D
@@ -30,7 +31,8 @@ sciblue = '#0C5DA5'
 scigreen = '#00B945'
 
 # --- file paths
-base_dir = '/Users/mackenzie/Desktop/idpt_experiments/10.07.21-BPE_Pressure_Deflection_20X/analyses/results-04.06.22-min-temp-pos-and-neg/'
+base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/10.07.21-BPE_Pressure_Deflection_20X/' \
+           'analyses/results-04.06.22-min-temp-pos-and-neg/'
 svp = base_dir + 'figs/'
 rvp = base_dir + 'results/'
 
@@ -78,37 +80,37 @@ def center_on_origin(df, z0=40, y0=25):
 
 
 # --- ---  --- ---  --- ---  --- --- ANALYZE TEST COORDINATES
-analyze_test = False
+analyze_test = True
 
 if analyze_test:
 
-    show_figs = False
-    save_figs = False
+    show_figs = True
+    save_figs = True
     export_results = True
 
     analyze_all_rows = True
-    plot_raw = False
-    plot_zcorr = False
+    plot_raw = True
+    plot_zcorr = True
     analyze_per_particle_precision = True
-    save_plots, show_plots = False, False
+    save_plots, show_plots = True, True
 
     fit_general_surface = True
-    save_fitted_surface = False
+    save_fitted_surface = True
 
-    analyze_all_pids = False
+    analyze_all_pids = True
     analyze_rmsez_by_overlap = True
     fit_pid_general_surface = True
-    show_percent_figs = False
-    save_percent_figs = False
-    fit_beam_theory = False
-    plot_fit_surface = False
+    show_percent_figs = True
+    save_percent_figs = True
+    fit_beam_theory = True
+    plot_fit_surface = True
     filter_z_std = 2
     filter_precision = 2
 
     analyze_percent_measure_by_precision = False
     export_precision_sweep_results = False
     save_precision_sweep_figs = False
-    save_precision_figs = False
+    save_precision_figs = True
     show_precision_figs = False
     export_precision_results = False
 
@@ -118,8 +120,8 @@ if analyze_test:
     # SETUP PROCESS MODIFIERS
 
     # experimental
-    mag_eff = 20
-    microns_per_pixel = 0.8
+    mag_eff = 10
+    microns_per_pixel = 1.6
     meas_depth = 100
 
     # fitting
@@ -149,49 +151,75 @@ if analyze_test:
     # --- ---  --- ---  --- ---  --- --- --- ---  --- ---  --- ---  --- --- --- ---  --- ---  --- ---  --- --- --- --- -
     # ANALYZE IN-FOCUS CALIBRATION COORDINATES FROM SPCT
 
+    # in-focus parameter
+    param_zf = 'zf_from_peak_int'  # 'zf_from_peak_int'  # 'zf_from_nsv'
+
     # read calibration file
     dfc = pd.read_excel(fpcal)
 
     # re-center origin
-    dfc['zf_from_nsv'] = dfc['zf_from_nsv'] - z0c
+    dfc[param_zf] = dfc[param_zf] - z0c
     dfc = flip_y(dfc, y0)
 
-    # fit smooth 3d spline
-    bispl_c, rmse_c = fit.fit_3d_spline(x=dfc.x, y=dfc.y, z=dfc.zf_from_nsv, kx=kx, ky=ky)
+    # calibration method
+    calib_method = 'new'
 
-    # plot scatter points + fitted surface
-    plot_calib_surface = False
+    if calib_method == 'new':
+        kx_c = 2
+        ky_c = 2
+        img_xc, img_yc = 256, 256
 
-    if plot_calib_surface:
+        dict_fit_plane, dict_fit_plane_bspl_corrected, dfcal_field_curvature_corrected, bispl_c = \
+            correct.fit_plane_correct_plane_fit_spline(dfcal=dfc,
+                                                       param_zf=param_zf,
+                                                       microns_per_pixel=microns_per_pixel,
+                                                       img_xc=img_xc,
+                                                       img_yc=img_yc,
+                                                       kx=kx_c,
+                                                       ky=ky_c,
+                                                       path_figs=svp)
 
-        plot_raw_calib = False
-        if plot_raw_calib:
-            fig, ax = plt.subplots()
+        rmse_c = dict_fit_plane['bispl_rmse']
 
-            ax.scatter(dfc.y, dfc.zf_from_nsv, c=dfc.id, s=1)
-            ax.set_xlabel('y (pixels)')
-            ax.set_xlim([0, dfc.y.max() * 1.05])
-            ax.set_ylabel(r'$z_{f} \: (\mu m)$')
-            ax.set_ylim([np.min([0, dfc.zf_from_nsv.min()]), dfc.zf_from_nsv.max() * 1.05])
 
-            plt.tight_layout()
-            plt.savefig(svp + 'calibration_raw_scatter_z_by_y_pixels.png')
+    else:
+        # fit smooth 3d spline
+        bispl_c, rmse_c = fit.fit_3d_spline(x=dfc.x, y=dfc.y, z=dfc[param_zf], kx=kx, ky=ky)
+
+        # plot scatter points + fitted surface
+        plot_calib_surface = True
+
+        if plot_calib_surface:
+
+            plot_raw_calib = True
+            if plot_raw_calib:
+                fig, ax = plt.subplots()
+
+                ax.scatter(dfc.y, dfc[param_zf], c=dfc.id, s=1)
+                ax.set_xlabel('y (pixels)')
+                ax.set_xlim([0, dfc.y.max() * 1.05])
+                ax.set_ylabel(r'$z_{f} \: (\mu m)$')
+                ax.set_ylim([np.min([0, dfc[param_zf].min()]), dfc[param_zf].max() * 1.05])
+
+                plt.tight_layout()
+                plt.savefig(svp + 'calibration_raw_scatter_z_by_y_pixels.png')
+                # plt.show()
+                plt.close()
+
+            fig, ax = plotting.scatter_3d_and_spline(dfc.x, dfc.y, dfc[param_zf],
+                                                     bispl_c,
+                                                     cmap='RdBu',
+                                                     grid_resolution=30,
+                                                     view='multi')
+            ax.set_xlabel('x (pixels)')
+            ax.set_ylabel('y (pixels)')
+            ax.set_zlabel(r'$z_{f} \: (\mu m)$')
+            plt.suptitle('fit RMSE = {}'.format(np.round(rmse_c, 3)))
+            plt.savefig(svp + 'calibration_fit-spline_kx{}_ky{}.png'.format(kx, ky))
             # plt.show()
             plt.close()
 
-        fig, ax = plotting.scatter_3d_and_spline(dfc.x, dfc.y, dfc.zf_from_nsv,
-                                                 bispl_c,
-                                                 cmap='RdBu',
-                                                 grid_resolution=30,
-                                                 view='multi')
-        ax.set_xlabel('x (pixels)')
-        ax.set_ylabel('y (pixels)')
-        ax.set_zlabel(r'$z_{f} \: (\mu m)$')
-        plt.suptitle('fit RMSE = {}'.format(np.round(rmse_c, 3)))
-        plt.savefig(svp + 'calibration_fit-spline_kx{}_ky{}.png'.format(kx, ky))
-        # plt.show()
-        plt.close()
-
+    # ---
 
     # --- --- READ TESTS
     dfps = []
@@ -506,7 +534,7 @@ if analyze_test:
             dfm = dfm.reset_index()
             dfm['frame'] = 1
             dfm = center_on_origin(dfm, z0=z0, y0=y0)
-            dfm = correct_z_by_xy_surface(dfm, functions.smooth_surface, cal_fit_surface_params, fit_var='z')
+            # dfm = correct_z_by_xy_surface(dfm, functions.smooth_surface, cal_fit_surface_params, fit_var='z')
 
             # filters
             dfm = dfm[dfm['z_counts'] > min_num_frames]
@@ -544,18 +572,20 @@ if analyze_test:
                 plt.close()
 
             # --- calculate percent overlap
-            dfm = analyze.calculate_particle_to_particle_spacing(test_coords_path=dfm,
-                                                                 theoretical_diameter_params_path=theory_diam_path,
-                                                                 mag_eff=mag_eff,
-                                                                 z_param='z_corr',
-                                                                 zf_at_zero=True,
-                                                                 max_n_neighbors=5,
-                                                                 true_coords_path=None,
-                                                                 maximum_allowable_diameter=None)
+            calc_pdo = False
+            if calc_pdo:
+                dfm = analyze.calculate_particle_to_particle_spacing(test_coords_path=dfm,
+                                                                     theoretical_diameter_params_path=theory_diam_path,
+                                                                     mag_eff=mag_eff,
+                                                                     z_param='z_corr',
+                                                                     zf_at_zero=True,
+                                                                     max_n_neighbors=5,
+                                                                     true_coords_path=None,
+                                                                     maximum_allowable_diameter=None)
 
-            # save to excel
-            if export_results:
-                dfm.to_excel(rvp + 'z{}um_percent_overlap.xlsx'.format(pid), index=False)
+                # save to excel
+                if export_results:
+                    dfm.to_excel(rvp + 'z{}um_percent_overlap.xlsx'.format(pid), index=False)
 
             # --- Fit uniformly loaded thin plate with simply boundary conditions
             if fit_beam_theory:
@@ -1166,16 +1196,44 @@ if analyze_percent_overlap:
 
 
 # --- ---  --- ---  --- ---  --- --- ANALYZE BY SPCT STATS
-analyze_spct_stats = True
+analyze_spct_stats = False
 
 if analyze_spct_stats:
 
     # filpaths
-    base_dir = '/Users/mackenzie/Desktop/idpt_experiments/10.07.21-BPE_Pressure_Deflection_20X/analyses/' \
-               'results-04.12.22_spct-meta-assessment-later'
+    """base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/10.07.21-BPE_Pressure_Deflection_20X/' \
+               'analyses/results-04.12.22_spct-meta-assessment-later'
+    plot_collections.plot_spct_stats(base_dir)"""
 
-    # read
-    plot_collections.plot_spct_stats(base_dir)
+    """fp1 = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/11.06.21_z-micrometer-v2/analyses/results-06.11.22_SPCT_1um-calib/calib-coords/calib_spct_stats.xlsx'
+    fp2 = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/10.07.21-BPE_Pressure_Deflection_20X/analyses/results-04.12.22_spct-meta-assessment-later/coords/calib-coords/calib_spct_stats_10.07.21-BPE_Pressure_Deflection_spct-cal.xlsx'
+
+    df1 = pd.read_excel(fp1)
+    df2 = pd.read_excel(fp2)
+
+    df1 = df1.dropna()
+    df2 = df2.dropna()
+
+    df1 = df1.round({'z_corr': 0})
+    df2 = df2.round({'z_corr': 0})
+
+    dfg1 = df1.groupby('z_corr').mean()
+    dfg2 = df2.groupby('z_corr').mean()
+
+    ms = 1
+
+    fig, (ax1, ax2) = plt.subplots(nrows=2, sharex=True)
+    ax1.plot(dfg1.index, dfg1.peak_int, '-o', ms=ms, label='10X')
+    ax1.plot(dfg2.index, dfg2.peak_int, '-o', ms=ms, label='20X')
+    ax1.set_ylabel('peak int')
+    ax1.legend()
+
+    ax2.plot(df1.z_corr, df1.contour_area, '.', ms=ms)
+    ax2.plot(df2.z_corr, df2.area_contour, '.', ms=ms)
+    ax2.set_xlabel('z corr')
+    #ax2.set_xlim([-20, 20])
+    ax2.set_ylabel('contour area')
+    plt.show()"""
 
 
 # --- ---  --- ---  --- ---  --- --- ANALYZE BY SPCT META ASSESSMENT
@@ -1183,14 +1241,14 @@ analyze_spct_meta = False
 
 if analyze_spct_meta:
     # filpaths
-    base_dir = '/Users/mackenzie/Desktop/idpt_experiments/10.07.21-BPE_Pressure_Deflection_20X/analyses/' \
-               'results-04.12.22_spct-meta-assessment-later'
+    base_dir = '/Users/mackenzie/Desktop/gdpyt-characterization/experiments/10.07.21-BPE_Pressure_Deflection_20X/' \
+               'analyses/results-06.13.22_spct-meta-last'
 
     # read
     plot_collections.plot_meta_assessment(base_dir,
                                           method='spct',
                                           min_cm=0.5,
-                                          min_percent_layers=0.5,
+                                          min_percent_layers=0.1,
                                           microns_per_pixel=0.8,
                                           path_calib_spct_pop=None
                                           )
