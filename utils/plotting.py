@@ -745,6 +745,7 @@ def scatter_xy_color_z(df, param_z):
 
 
 def scatter_z_by_xy(df, z_params):
+    """ fig, ax = scatter_z_by_xy(df, z_params='z') """
     if not isinstance(z_params, list):
         z_params = [z_params]
 

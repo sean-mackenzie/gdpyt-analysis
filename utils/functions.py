@@ -203,6 +203,40 @@ class fNonDimensionalNonlinearSphericalUniformLoad:
 
 # ---
 
+# ---
+
+
+# error function
+
+class fErrorFunction:
+
+    def __init__(self, profile_radius):
+        self.profile_radius = profile_radius
+
+        self.erf_xspan = 4
+        self.scale_r = profile_radius / self.erf_xspan
+
+    def radial_error_function(self, r, A):
+        return (special.erf(r / self.scale_r - 2) - 1) * A
+
+    def fit(self, r, z):
+        """ fit_r, fit_z, A, rmse, r_squared = fERF.fit(r, z) """
+        func = self.radial_error_function
+
+        popt, pcov = curve_fit(func, r, z)  # xtol=1.49012e-07, maxfev=1000)
+        A = popt[0]
+
+        # calculate the fit error
+        rmse, r_squared = fit.calculate_fit_error(fit_results=func(r, *popt), data_fit_to=z)
+
+        # resample
+        fit_r = np.linspace(0, self.profile_radius, 250)
+        fit_z = func(fit_r, *popt)
+
+        return fit_r, fit_z, A, rmse, r_squared
+
+# ---
+
 
 # -------------------------------------------- OPTICS ------------------------------------------------------------------
 

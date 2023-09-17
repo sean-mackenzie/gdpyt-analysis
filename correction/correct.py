@@ -119,6 +119,9 @@ def fit_in_focus_plane(df, param_zf, microns_per_pixel, img_xc, img_yc):
     x_span = df.x.max() - df.x.min()
     y_span = df.y.max() - df.y.min()
     num_density = num_locations / (x_span * y_span)
+
+    if param_zf not in df.columns:
+        j = 1
     zf_mean_of_points = df[param_zf].mean()
     zf_std_of_points = df[param_zf].std()
 
@@ -935,10 +938,11 @@ def correct_z_by_spline_relative_to_calib_pid_xy(cx, cy, df, bispl, param_z, par
                                                  flip_correction=False):
     z_relative_zero = bispl.ev(cx, cy)
     df[param_z_surface] = bispl.ev(df.x, df.y) - z_relative_zero
-    df[param_z_corr] = df[param_z] - df[param_z_surface]
 
     if flip_correction:
         df[param_z_corr] = df[param_z] + df[param_z_surface]
+    else:
+        df[param_z_corr] = df[param_z] - df[param_z_surface]
 
     return df
 
@@ -948,10 +952,11 @@ def correct_z_by_plane_relative_to_calib_pid_xy(cx, cy, df, dict_fit_plane, para
     popt = dict_fit_plane['popt_pixels']
     z_relative_zero = functions.calculate_z_of_3d_plane(cx, cy, popt=popt)
     df[param_z_surface] = functions.calculate_z_of_3d_plane(df.x, df.y, popt=popt) - z_relative_zero
-    df[param_z_corr] = df[param_z] - df[param_z_surface]
 
     if flip_correction:
         df[param_z_corr] = df[param_z] + df[param_z_surface]
+    else:
+        df[param_z_corr] = df[param_z] - df[param_z_surface]
 
     return df
 

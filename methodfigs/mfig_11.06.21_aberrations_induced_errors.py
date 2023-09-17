@@ -242,6 +242,24 @@ dft = correct.correct_z_by_spline_relative_to_calib_pid_xy(cx=cx, cy=cy,
                                                            flip_correction=flip_correction,
                                                            )
 
+# ---
+# ASSIGN "Z_TRUE" TO CALIBRATION PARTICLE'S AVERAGE Z-POSITION PER Z (N=3, FRAMES)
+error_relative_calib_particle = True
+if error_relative_calib_particle:
+    z_trues = dft.z_true.unique()
+    dfs = []
+    for z_true in z_trues:
+        dftz = dft[dft['z_true'] == z_true]
+
+        # z_true = dftz[dftz['id'] == calib_id_from_testset].z_true.iloc[0]
+        z_calib = dftz[dftz['id'] == calib_id_from_testset].z.mean()
+        dftz['z_true'] = np.round(z_calib, 3)
+        dfs.append(dftz)
+
+    dfs = pd.concat(dfs)
+    dft = dfs
+
+dft['error_z'] = dft['z'] - dft['z_true']
 dft['error_z_corr_tilt'] = dft['z_corr_tilt'] - dft['z_true']
 dft['error_z_corr_tilt_fc'] = dft['z_corr_tilt_fc'] - dft['z_true']
 
@@ -251,8 +269,8 @@ dft['error_z_corr_tilt_fc'] = dft['z_corr_tilt_fc'] - dft['z_true']
 # 4. Post-process test coords
 
 pz = 'error_z_corr_tilt'  # 'error_z_corr_tilt' # 'error_z' # 'error_z_corr_tilt_fc'
-px = 'x'  # 'gauss_xc'
-py = 'y'  # 'gauss_yc'
+px = 'gauss_xc'  # 'gauss_xc' 'x'
+py = 'gauss_yc'  # 'gauss_yc' 'y'
 
 # Get stats on calib and test coords
 z_range = (dfc.z_true.min(), dfc.z_true.max())
@@ -262,7 +280,7 @@ error_z_barnkob = measurement_depth / 10
 # -
 
 # List of filter variables
-filter_min_cm = 0.9
+filter_min_cm = 0.5
 filter_error_z = 5  # error_z_barnkob
 
 # Filter #1: remove low similarity (keep: Cm > Cm_min)
@@ -276,6 +294,10 @@ dft = dft[dft[pz].abs() < filter_error_z]
 dft = dft[dft['id'].isin(include_pids_cal)]
 print(len(dft))"""
 
+# make r-coordinate
+dft['r'] = np.sqrt((dft['x'] - 256) ** 2 + (dft['y'] - 256) ** 2)
+
+
 # -
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -285,10 +307,31 @@ print(len(dft))"""
 eval_by_z = False
 if eval_by_z:
 
-    for z_true in np.arange(20, 29, 1):
+    z_trues = dft.z_true.unique()
+    inspect_z_trues = z_trues[(z_trues > 45) & (z_trues < 57)]
+    for z_true in inspect_z_trues:  # np.arange(20, 29, 1):
         dftz = dft[dft['z_true'] == z_true]
 
-        plot_surf = True
+        plot_scatter = True
+        if plot_scatter:
+            fig, ax = plt.subplots(ncols=3, sharey=True, figsize=(size_x_inches * 2.25, size_y_inches / 1.5))
+            ax[0].scatter(dftz['r'], dftz[pz])
+            ax[1].scatter(dftz[px], dftz[pz])
+            ax[2].scatter(dftz[py], dftz[pz], label=pz)
+            ax[0].set_xlabel('r')
+            ax[0].set_ylabel(pz)
+            ax[1].set_xlabel('x')
+            ax[2].set_xlabel('y')
+            plt.suptitle(r'$\overline{\epsilon_{z}} = $' + ' {} '.format(np.mean(dftz[pz].abs())) + r'$\mu m$' + '\n' +
+                         'z-true={}'.format(np.round(z_true, 1)))
+            plt.tight_layout()
+            if path_figs:
+                plt.savefig(path_figs + '/test_fit-scatter_z={}_z-true={}.png'.format(pz, np.round(z_true, 1)))
+            else:
+                plt.show()
+            plt.close()
+
+        plot_surf = False
         if plot_surf:
             kx = 2
             ky = 2
@@ -316,13 +359,13 @@ if eval_by_z:
             ax.set_zlabel(r'$z_{f} \: (\mu m)$')
             plt.suptitle('fit RMSE = {}'.format(np.round(rmse, 3)))
             if path_figs:
-                plt.savefig(path_figs + '/test_fit-spline_z={}_z-true={}.png'.format(pz, z_true))
+                plt.savefig(path_figs + '/test_fit-spline_z={}_z-true={}.png'.format(pz, np.round(z_true, 1)))
             plt.close()
 
 # -
 
 # evaluate z-errors over a z-range
-eval_across_z = True
+eval_across_z = False
 if eval_across_z:
 
     dz_zfs = [50]
@@ -404,7 +447,7 @@ if eval_across_z:
 # ---
 
 # evaluate rmse_z
-eval_rmse_z = True
+eval_rmse_z = False
 if eval_rmse_z:
 
     true_num_particles_per_frame = 88
@@ -458,7 +501,7 @@ if eval_rmse_z:
                                  ], axis=1, join='inner', sort=False)
 
         # export
-        dfrmse_bins.to_excel(path_results + '/bin-z-true_rmse-z_ec-{}.xlsx'.format(ec))
+        dfrmse_bins.to_excel(path_results + '/bin-z-true_rmse-z_ec-{}_relative-calib.xlsx'.format(ec))
 
         # -
 
@@ -489,7 +532,7 @@ if eval_rmse_z:
                                  dfcm[['true_num', 'num_idd', 'num_meas', 'percent_meas_idd', 'true_percent_meas']],
                                  ], axis=1, join='inner', sort=False)
         dfrmse_mean = dfrmse_mean.groupby('test_id').mean()
-        dfrmse_mean.to_excel(path_results + '/mean-dz_rmse-z_ec-{}.xlsx'.format(ec))
+        dfrmse_mean.to_excel(path_results + '/mean-dz_rmse-z_ec-{}_relative-calib.xlsx'.format(ec))
 
         # ---
 
@@ -520,8 +563,7 @@ if eval_rmse_z:
             plt.tight_layout()
             plt.suptitle(ec)
             if save_figs:
-                plt.savefig(
-                    path_figs + '/rmse-z_by_z-true_ec-{}.png'.format(ec))
+                plt.savefig(path_figs + '/rmse-z_by_z-true_ec-{}_relative-calib.png'.format(ec))
             if show_figs:
                 plt.show()
             plt.close()
@@ -535,15 +577,15 @@ if eval_rmse_z:
 # ---
 
 # compare rmse_z
-compare_rmse_z = True
+compare_rmse_z = False
 if compare_rmse_z:
     error_columns = ['error_z', 'error_z_corr_tilt', 'error_z_corr_tilt_fc']
 
     fig, ax = plt.subplots()
     ms = 1
     for ec in error_columns:
-        dfrmse_bins = pd.read_excel(path_results + '/bin-z-true_rmse-z_ec-{}.xlsx'.format(ec))
-        dfrmse_mean = pd.read_excel(path_results + '/mean-dz_rmse-z_ec-{}.xlsx'.format(ec))
+        dfrmse_bins = pd.read_excel(path_results + '/bin-z-true_rmse-z_ec-{}_relative-calib.xlsx'.format(ec))
+        dfrmse_mean = pd.read_excel(path_results + '/mean-dz_rmse-z_ec-{}_relative-calib.xlsx'.format(ec))
 
         ax.plot(dfrmse_bins.index, dfrmse_bins.rmse_z, '-o', ms=ms,
                 label='{}: {}'.format(ec, np.round(dfrmse_mean['rmse_z'].iloc[0], 2)))
@@ -554,11 +596,90 @@ if compare_rmse_z:
     ax.legend(title='r.m.s. error(z) from')
 
     plt.tight_layout()
-    plt.savefig(path_figs + '/compare-ecs_rmse-z_by_z-true.png')
+    plt.savefig(path_figs + '/compare-ecs_rmse-z_by_z-true_relative-calib.png')
     plt.show()
     plt.close()
 
-j = 1
+# ---
+
+# 2d-bin by r and z
+bin_r_z = True
+if bin_r_z:
+
+    z_trues = dft.z_true.unique()
+
+    pzs = ['error_z_corr_tilt', 'error_z', 'error_z_corr_tilt_fc']
+    columns_to_bin = ['r', 'z_true']
+    column_to_count = 'id'
+    bins = [3, z_trues]
+    round_to_decimals = [1, 3]
+    min_num_bin = 10
+    return_groupby = True
+    plot_fit = False
+
+    dftt = dft.copy()
+
+    for pz in pzs:
+
+        dft = dftt.copy()
+
+        plot_rmse = True
+        if plot_rmse:
+            save_id = pz
+            dft['rmse_z'] = dftt[pz] ** 2
+            pz = 'rmse_z'
+        else:
+            save_id = pz
+
+        dfm, dfstd = bin.bin_generic_2d(dft,
+                                        columns_to_bin,
+                                        column_to_count,
+                                        bins,
+                                        round_to_decimals,
+                                        min_num_bin,
+                                        return_groupby
+                                        )
+
+        # resolve floating point bin selecting
+        dfm = dfm.round({'bin_tl': 0, 'bin_ll': 2})
+        dfstd = dfstd.round({'bin_tl': 0, 'bin_ll': 2})
+
+        dfm = dfm.sort_values(['bin_tl', 'bin_ll'])
+        dfstd = dfstd.sort_values(['bin_tl', 'bin_ll'])
+
+        mean_rmse_z = np.round(np.mean(np.sqrt(dfm[pz])), 3)
+
+        # plot
+        fig, ax = plt.subplots()
+
+        for i, bin_r in enumerate(dfm.bin_tl.unique()):
+            dfbr = dfm[dfm['bin_tl'] == bin_r]
+            dfbr_std = dfstd[dfstd['bin_tl'] == bin_r]
+
+            if plot_rmse:
+                ax.plot(dfbr.bin_ll, np.sqrt(dfbr[pz]), '-o', ms=2.5,
+                        label='{}, {}'.format(int(np.round(bin_r, 0)), np.round(np.mean(np.sqrt(dfbr[pz])), 3)))
+                ylbl = r'$\sigma_{z}^{\delta} \: (\mu m)$'
+            else:
+                # scatter: mean +/- std
+                ax.errorbar(dfbr.bin_ll, dfbr[pz], yerr=dfbr_std[pz],
+                            fmt='-o', ms=2, elinewidth=0.5, capsize=1, label=int(np.round(bin_r, 0)))
+                ylbl = r'$\epsilon_{z} \: (\mu m)$'
+
+        ax.set_xlabel(r'$z_{true} \: (\mu m)$')
+        ax.set_xlim([10, 90])
+        #ax.set_xticks(ticks=xyticks, labels=xyticks)
+        ax.set_ylim([0, 3.5])
+        #ax.set_yticks(ticks=yerr_ticks, labels=yerr_ticks)
+        ax.legend(loc='upper left', title=r'$r_{bin}, \overline{\sigma_{z}}$',
+                  borderpad=0.2, handletextpad=0.6, borderaxespad=0.25, markerscale=0.75)
+        ax.set_ylabel(ylbl)
+        ax.set_title('mean rmse-z = {} microns'.format(mean_rmse_z))
+        plt.savefig(path_figs + '/bin-r-z_{}-{}_by_z.png'.format(save_id, pz))
+        plt.tight_layout()
+        plt.show()
+        plt.close()
+
 
 # ---
 

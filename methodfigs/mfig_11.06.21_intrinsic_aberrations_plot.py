@@ -65,7 +65,7 @@ fig_type = '.png'
 
 
 # METHOD: IDPT or SPCT
-method = 'idpt'
+method = 'spct'
 
 # --- INTRINSIC ABERRATIONS ASSESSMENT
 calc_ia = False
@@ -325,7 +325,7 @@ if plot_ia:
     r_bins = [rl, rl + dr, rr - dr, rr]
 
     # 3 subplots: (1) scatter, raw; (2) fill between, fitted curve; (3) error bars, radial dependence
-    plot_raw_fit_radial = True
+    plot_raw_fit_radial = False
     if plot_raw_fit_radial:
 
         # processing
@@ -491,7 +491,7 @@ if plot_ia:
     # ---
 
     # 2 subplots: (2) scatter, raw; fill between, fitted curve; ; (3) error bars, radial dependence
-    plot_fit_on_raw_and_radial = True
+    plot_fit_on_raw_and_radial = False
     if plot_fit_on_raw_and_radial:
 
         # processing
@@ -502,7 +502,7 @@ if plot_ia:
 
         # setup
         y2_label = r'$S_{fp}$'
-        y3_label = r'$S_{fp}$'
+        y3_label = r'$S_{fp}^{\delta}$'
 
         y2l, d2l = 0.08, 0.0
         y3l, d3l = 0.08, 0.0
@@ -1447,6 +1447,50 @@ if compare_ia_cubic:
 
     # ---
 
+# ---
+
+# compute TPR for each radial bin
+compute_radial_dep_TPR = False
+if compute_radial_dep_TPR:
+
+    # define radial dependence for multi-plots
+    rl, rr, dr = 120, 450, 1
+    r_bins = [rl, rl + dr, rr - dr, rr]
+
+    for method in ['idpt', 'spct']:
+
+        # file names
+        fni = 'ia_values_{}'.format(method)
+        df = pd.read_excel(join(path_results, fni + filetype))
+
+        # ---
+
+        # filter
+        df = df[(df['zs'] > -50) & (df['zs'] < 50)]
+
+        # ---
+
+        # bin by 'r'
+        column_to_bin = 'r'
+        bins = np.array(r_bins) / microns_per_pixel
+        df = bin.bin_by_list(df, column_to_bin=column_to_bin, bins=bins, round_to_decimal=1)
+        bins_r = df.bin.unique()
+        bins_r.sort()
+
+        for br in bins_r:  # [bins_r[0], bins_r[-1]]:
+
+            # get radial interval
+            dfb = df[df['bin'] == br]
+
+            # sensitivity
+            df_sens = analyze.evaluate_ia_sensitivity(dfb)
+            df_sens.to_excel(join(path_results,
+                                  'ia_sensitivity_{}_r{}'.format(method, int(br * microns_per_pixel)) + filetype),
+                             )
+
+        # ---
+
+    # ---
 
 # ---
 

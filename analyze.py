@@ -361,7 +361,7 @@ def evaluate_reference_model_by_bin(model,
             sf = False
 
         # 1. get dataframe for this bin
-        dfb = df[df[column_to_bin] == bin]
+        dfb = df  # df[df[column_to_bin] == bin]
         num_counts_raw = len(dfb)
 
         # 2. apply filters

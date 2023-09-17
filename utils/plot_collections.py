@@ -655,7 +655,7 @@ def plot_spct_stats(base_dir, method='spct'):
 def plot_similarity_stats_simple(base_dir, min_percent_layers=0.75):
 
     path_similarity = join(base_dir, 'similarity')
-    path_results = join(base_dir, 'results', 'similarity-simple')
+    path_results = join(base_dir, 'results', 'similarity-simple_min{}p-layers'.format(min_percent_layers))
 
     if not os.path.exists(path_results):
         os.makedirs(path_results)

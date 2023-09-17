@@ -147,7 +147,7 @@ h = measurement_depth
 num_frames_per_step = 3
 filter_barnkob = measurement_depth / 10
 filter_step_size = 10
-min_cm = 0.9
+min_cm = 0.5
 min_percent_layers = 0.5
 remove_ids = None
 
@@ -246,10 +246,10 @@ def fit_plane_and_bispl(path_figs=None):
 analyze_test = True
 if analyze_test:
 
-    column_for_z = 'z_corr_tilt'  # no correction: 'z'; tilt: 'z_corr_tilt'; tilt + field curvature : 'z_corr_tilt_fc'
+    column_for_z = 'z'  # no correction: 'z'; tilt: 'z_corr_tilt'; tilt + field curvature : 'z_corr_tilt_fc'
     export_processed_coords = True
     correct_idpt = True
-    flip_correction = False
+    flip_correction = True
 
     plot_z_corrections = False
     plot_z_corrs_by_xy = False
@@ -1069,7 +1069,7 @@ if analyze_test:
 # ----------------------------------------------------------------------------------------------------------------------
 # EVALUATE POST-PROCESSED COORDS
 
-evaluate_test = True
+evaluate_test = False
 if evaluate_test:
 
     # read coords
@@ -1485,7 +1485,7 @@ if evaluate_test:
 
             # ---
 
-            # evaluate between the 3 frames per z
+            # evaluate axial displacement (~5 microns) between the 3 frames per z
             eval_between_dz_frames = True
             if eval_between_dz_frames:
 

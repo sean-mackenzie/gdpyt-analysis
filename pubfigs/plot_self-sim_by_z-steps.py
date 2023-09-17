@@ -55,73 +55,89 @@ path_results = base_dir + '/results'
 # ---
 
 # ----------------------------------------------------------------------------------------------------------------------
-# PLOT SELF SIMILARTY BY DZ-STEP
+# PLOT SELF SIMILARITY BY DZ-STEP
 plot_self_sim = False
 
 if plot_self_sim:
 
     # setup
-    self_sim = 'middle'
-    min_percent_layers = 0.01
+    self_sim = 'forward'
+    min_percent_layers = [0.75, 0.5, 0.35, 0.01]  # 0.01
     DoF = 6.5
 
     # plot
     z_steps = [1, 2, 3, 5]
     calib_ids = [41, 42, 42, 42]
 
-    fig, ax = plt.subplots()  # figsize=(size_x_inches / 2, size_y_inches / 2)
+    for min_p_l in min_percent_layers:
 
-    for dz, spct_calib_id in zip(z_steps[:3], calib_ids):
-        fp = base_dir + '/similarity/{}/calib_stacks_{}_self-similarity_z-step-{}.xlsx'.format(self_sim, self_sim, dz)
-        dfs = pd.read_excel(fp)
+        fig, ax = plt.subplots()  # figsize=(size_x_inches / 2, size_y_inches / 2)
 
-        # setup
-        zf = 50.0
-        x = 'z_corr'
-        y = 'cm'
+        for dz, spct_calib_id in zip(z_steps, calib_ids):
+            fp = base_dir + '/similarity/{}/calib_stacks_{}_self-similarity_z-step-{}.xlsx'.format(self_sim, self_sim, dz)
+            dfs = pd.read_excel(fp)
 
-        # processing
-        """dfg = dfs.groupby('id').mean().reset_index()
-        passing_ids = dfg[dfg['cm'] > 0.975].id.values
-        dfs = dfs[dfs['id'].isin(passing_ids)]"""
+            # setup
+            zf = 50.0
+            x = 'z_corr'
+            y = 'cm'
 
-        # get calibration particle and center z on focal plane
-        if spct_calib_id is None:
-            dfs = dfs.groupby('z').mean().reset_index()
+            # filtering
+
+            # filter 1. minimum average Cm
+            """dfg = dfs.groupby('id').mean().reset_index()
+            passing_ids = dfg[dfg['cm'] > 0.975].id.values
+            dfs = dfs[dfs['id'].isin(passing_ids)]"""
+
+            # filter 2. minimum number of layers
+            dfs = dfs[dfs['layers'] > dfs['layers'].max() * min_p_l]
+
+            # get calibration particle and center z on focal plane
+            spct_calib_id = None
+            if spct_calib_id is None:
+                num_pids = len(dfs['id'].unique())
+                dfs = dfs.groupby('z').mean().reset_index()
+            else:
+                dfs = dfs[dfs['id'] == spct_calib_id]
+                num_pids = len(dfs['id'].unique())
+
+            dfs['z_corr'] = dfs['z'] / dz - zf
+            dfs = dfs[dfs['z_corr'] < 51]
+
+            # plot
+            ax.plot(dfs[x], dfs[y], '-o', ms=1,
+                    label='({}, {})'.format(dz, np.round(dfs[y].mean(), 3)),
+                    zorder=(33 - dz) / 30)
+
+        ax.fill_between([-DoF, DoF], 0.0, 1.1,
+                        color='red', ec='none', alpha=0.1, label=r'$\Delta z = \pm D.o.F.$')
+
+        if self_sim == 'forward':
+            ax.set_ylabel(r'$S \left( z_{i}, z_{i+1} \right)$')
         else:
-            dfs = dfs[dfs['id'] == spct_calib_id]
-        dfs['z_corr'] = dfs['z'] / dz - zf
-        dfs = dfs[dfs['z_corr'] < 51]
+            ax.set_ylabel(r'$\overline{S}_{(i-1, i, i+1)}$')
 
-        # plot
-        ax.plot(dfs[x], dfs[y], '-o', ms=1, label=dz, zorder=(33 - dz) / 30)
+        ax.set_ylim(bottom=0.7875, top=1.0025)
+        # ax.set_yticks([0.95, 1.00])
+        ax.set_xlabel(r'$z \: (\mu m)$')
+        #ax.set_xlim([-10, 10])
+        ax.set_xticks([-50, -25, 0, 25, 50])
+        ax.legend(title=r'$(\Delta z, \overline{S_{ii}})$')
+        ax.set_title('Numb particles analyzed = {}'.format(num_pids))
 
+        plt.tight_layout()
 
-    ax.fill_between([-DoF / 2, DoF / 2], 0.9, 1.1,
-                    color='red', ec='none', alpha=0.1, label='2X D.o.F.')
+        if isinstance(spct_calib_id, (int, float)):
+            spct_calib_id = True
 
-    if self_sim == 'forward':
-        ax.set_ylabel(r'$S \left( z_{i}, z_{i+1} \right)$')
-    else:
-        ax.set_ylabel(r'$\overline{S}_{(i-1, i, i+1)}$')
+        # plt.savefig(path_results + '/compare_{}-self-similarity_by_z-step_min{}p-layers+mean.svg'.format(self_sim, min_p_l))
+        plt.show()
 
-    ax.set_ylim(bottom=0.92, top=1.0025)
-    # ax.set_ylim(bottom=0.965, top=1.00125)
-    ax.set_yticks([0.95, 1.00])
-    ax.set_xlabel(r'$z \: (\mu m)$')
-    #ax.set_xlim([-10, 10])
-    ax.set_xticks([-50, -25, 0, 25, 50])
-    ax.legend(title=r'$\Delta z \: (\mu m)$')
-
-    plt.tight_layout()
-
-    if isinstance(spct_calib_id, (int, float)):
-        spct_calib_id = True
-
-    plt.savefig(path_results + '/compare_{}-self-similarity_by_z-step_calib-id-{}_DoF-fill.svg'.format(self_sim, spct_calib_id))
-    plt.show()
+        # ---
 
     # ---
+
+# -
 
 # ----------------------------------------------------------------------------------------------------------------------
 # PLOT P2P SIMILARITY
@@ -129,13 +145,18 @@ if plot_self_sim:
 plot_col_sim = False
 
 if plot_col_sim:
+    min_percent_layers = [0.01]  # 0.01
 
-    # simple
-    plot_collections.plot_similarity_stats_simple(base_dir, min_percent_layers=0.5)
+    for min_p_l in min_percent_layers:
 
-    # full analysis
-    mean_min_dx = 25.5
-    plot_collections.plot_similarity_analysis(base_dir, method='spct', mean_min_dx=mean_min_dx)
+        # simple
+        plot_collections.plot_similarity_stats_simple(base_dir, min_percent_layers=min_p_l)
+
+        # full analysis
+        mean_min_dx = 25.5
+        # plot_collections.plot_similarity_analysis(base_dir, method='spct', mean_min_dx=mean_min_dx)
+
+raise ValueError()
 
 
 # ---
